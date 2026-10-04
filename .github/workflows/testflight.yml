@@ -73,7 +73,20 @@ jobs:
             -allowProvisioningUpdates \
             -authenticationKeyPath "$RUNNER_TEMP/AuthKey.p8" \
             -authenticationKeyID "$ASC_KEY_ID" \
-            -authenticationKeyIssuerID "$ASC_ISSUER_ID"
+            -authenticationKeyIssuerID "$ASC_ISSUER_ID" 2>&1 | tee "$RUNNER_TEMP/export.log"
+
+      - name: Report export errors as annotations
+        if: failure()
+        run: |
+          grep -iE "error|fail|denied|not found|permission|certificate|profile|invalid" "$RUNNER_TEMP/export.log" | tail -25 | while IFS= read -r line; do
+            echo "::error::${line:0:400}"
+          done
+          LOGDIR=$(grep -oE "/[^ ]+\.xcdistributionlogs" "$RUNNER_TEMP/export.log" | head -1)
+          if [ -n "$LOGDIR" ] && [ -d "$LOGDIR" ]; then
+            grep -rhiE "error|fail|denied" "$LOGDIR" | tail -15 | while IFS= read -r line; do
+              echo "::error::${line:0:400}"
+            done
+          fi
 
       - name: Remove API key
         if: always()
