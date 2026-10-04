@@ -32,7 +32,16 @@ final class AudioSessionCoordinator {
         apply()
     }
 
+    /// "idle", "speech", "metronome" or "speech+metronome".
+    var stateText: String {
+        if speechCount > 0 && metronomeCount > 0 { return "speech+metronome" }
+        if speechCount > 0 { return "speech" }
+        if metronomeCount > 0 { return "metronome" }
+        return "idle"
+    }
+
     private func apply() {
+        Diagnostics.shared.setAudio(stateText)
         let session = AVAudioSession.sharedInstance()
         do {
             if speechCount == 0 && metronomeCount == 0 {

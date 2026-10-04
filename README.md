@@ -2,10 +2,12 @@
 
 A small native iOS app (SwiftUI, iOS 17+) for training from a 6:52 mile toward a 5:30 mile.
 
-- **Run**: live GPS pace, average pace, distance and mile splits, with optional voice cues and a pace guard (Easy or Threshold). Hold the End button for one second to finish.
+- **Run**: live GPS pace (instant Doppler pace plus a 30 second average), distance and mile splits, with optional voice cues and a pace guard (Easy or Threshold). Hold the "hold to end" bar for one second to finish.
 - **Track**: tap-per-lap workout timer with target splits from your current training zones, rest countdown, and a results table.
-- **History**: weekly mileage chart (Monday to Sunday, last 10 weeks), saved runs and workouts, and manual mileage entry for treadmill or watch runs.
-- **Settings**: current and goal mile time, zone preview, voice and haptic toggles.
+- **Log**: weekly mileage chart (Monday to Sunday, last 10 weeks), saved runs and workouts, and manual mileage entry for treadmill or watch runs.
+- **Set**: current and goal mile time, zone preview, voice and haptic toggles, light or dark display, and a diagnostics switch.
+
+The look is "Instrument": the Departure Mono pixel typeface (MIT, in `MilePace/Resources/Fonts/`), pure black and white, and one electric blue used only as a fill. Design tokens live in `MilePace/Design/Theme.swift` and the components in `MilePace/Design/`. The reference mockups are in `design-mockups.png`.
 
 Single user, no accounts, no network. Data is stored on the device with SwiftData.
 
@@ -47,7 +49,10 @@ Before the first run:
 - Carry the phone in the same place every run (armband or the same pocket). GPS pace is smoother and more comparable that way.
 - GPS pace is noisy on a 400 m track because of the tight turns and short distances. Use Track mode on the track and tap a lap each time you cross the line.
 - In Track mode the rest timer does not start the next rep for you. When the rest ends you get a vibration and a voice cue; tap GO when you actually start running.
-- Tracking pace uses a 30 second window and needs about 25 m of movement before it shows a number, so the first few seconds read `--:--`.
+- The 30 second window pace needs about 25 m of movement before it shows a number. The big pace number uses Doppler speed when the phone reports it (see Pace below), so it appears sooner; otherwise the first seconds read `--:--`.
 - Road workouts: pick Workout mode on the Run tab, warm up, then tap Start Reps. Reps, recoveries and cool-down are coached by voice, with pace verdicts against the rep target (threshold, interval or goal pace). Skip ends a rep or recovery early. Pace cues (quarter, half or full mile) are held back during reps and recoveries.
 - Metronome: the cadence click plays through the speaker or headphones, keeps going with the screen locked, and mixes with music and voice cues. Cadence comes from the phone's pedometer, so carry the phone on your body. After two minutes, "Set to my cadence +5%" sets the click a little above your average; raise cadence gradually.
-- Run maps: each saved run keeps its route and shows it on a map colored by pace against that run's average (green faster, orange steady, blue slower) with mile markers. Runs saved before v1.1 have no map.
+- Run maps: each saved run keeps its route and shows it on a map colored by pace against that run's average (blue faster, white or black steady, grey slower) with mile markers. Runs saved before v1.1 have no map.
+- GPS warm-up: while the Run tab is showing and nothing is recording, the status line reads `gps searching` with a blinking cursor, then `gps 4m` once the fix is within 10 m. Wait for that before tapping start so distance begins where you stand. Warm-up stops by itself after 3 minutes, when you leave the Run tab, or when the app goes to the background, to save battery. It does not use the background location mode.
+- Pace: the big number follows your Doppler speed (smoothed over about 4 seconds), so it appears within a few seconds of moving and a change of pace mostly shows in about 5 seconds. If the phone reports no usable speed it falls back to the 30 second window. Voice cues say "Slow down" and "Speed up".
+- Diagnostics: turn on `diagnostics` in Set and the Run tab gets a `[ diag ]` button. The panel shows live GPS accuracy, speed accuracy, sample rate, fix age, accepted and rejected fixes, Doppler pace, 30 second pace, cadence and audio state, plus a log of fixes, rejections, voice cues (with what triggered them), state changes and metronome events. `[ export run log ]` shares a CSV of every raw sample from the last run (`milepace-run-YYYYMMDD-HHmm.csv`). The log and CSV are only collected while diagnostics are on.

@@ -42,7 +42,6 @@ enum WeeklyMiles {
 
 @MainActor
 struct HistoryView: View {
-    @Environment(\.modelContext) private var modelContext
     @Query(sort: \RunRecord.date, order: .reverse) private var runs: [RunRecord]
     @Query(sort: \WorkoutRecord.date, order: .reverse) private var workouts: [WorkoutRecord]
 
@@ -53,100 +52,150 @@ struct HistoryView: View {
         return WeeklyMiles.buckets(runs: pairs)
     }
 
+    private var thisWeek: WeekBucket? {
+        return buckets.last
+    }
+
+    private var thisWeekMiles: Double {
+        return thisWeek?.miles ?? 0
+    }
+
     var body: some View {
         NavigationStack {
-            List {
-                Section("Weekly miles") {
-                    Chart(buckets) { bucket in
-                        BarMark(x: .value("Week of", bucket.label),
-                                y: .value("Miles", bucket.miles))
-                            .foregroundStyle(Color.orange)
-                    }
-                    .chartYAxisLabel("Miles")
-                    .frame(height: 180)
-                    .padding(.vertical, 8)
-                }
-
-                Section("Runs") {
-                    if runs.isEmpty {
-                        Text("No runs yet.")
-                            .foregroundStyle(.secondary)
-                    }
-                    ForEach(runs) { run in
-                        NavigationLink {
-                            RunDetailView(run: run)
-                        } label: {
-                            runRow(run)
+            VStack(spacing: 0) {
+                StatusLine(left: "milepace",
+                           center: "week of " + (thisWeek?.label ?? "--"),
+                           right: String(format: "%.1f", thisWeekMiles) + " mi")
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 0) {
+                        HeroReadout(label: "this week",
+                                    value: String(format: "%.1f", thisWeekMiles),
+                                    unit: "mi",
+                                    size: .hero)
+                            .padding(.top, Theme.s3)
+                        weeklyChart
+                        runsSection
+                        workoutsSection
+                        BracketButton(title: "add miles") {
+                            showingAdd = true
                         }
+                        .padding(.top, Theme.s4)
+                        .padding(.bottom, Theme.s3)
                     }
-                    .onDelete { offsets in
-                        for index in offsets {
-                            modelContext.delete(runs[index])
-                        }
-                    }
-                }
-
-                Section("Workouts") {
-                    if workouts.isEmpty {
-                        Text("No workouts yet.")
-                            .foregroundStyle(.secondary)
-                    }
-                    ForEach(workouts) { workout in
-                        NavigationLink {
-                            WorkoutDetailView(workout: workout)
-                        } label: {
-                            workoutRow(workout)
-                        }
-                    }
-                    .onDelete { offsets in
-                        for index in offsets {
-                            modelContext.delete(workouts[index])
-                        }
-                    }
+                    .padding(.horizontal, Theme.s3)
                 }
             }
-            .navigationTitle("History")
-            .toolbar {
-                ToolbarItem(placement: .primaryAction) {
-                    Button {
-                        showingAdd = true
-                    } label: {
-                        Label("Add miles", systemImage: "plus")
-                    }
-                }
-            }
+            .instrumentScreen()
+            .toolbar(.hidden, for: .navigationBar)
             .sheet(isPresented: $showingAdd) {
                 AddMilesView()
             }
         }
     }
 
-    private func runRow(_ run: RunRecord) -> some View {
-        VStack(alignment: .leading, spacing: 2) {
-            HStack {
-                Text(run.date, style: .date)
-                    .font(.headline)
-                Spacer()
-                Text("\(formatMiles(run.distanceMeters)) mi")
-                    .font(.system(.headline, design: .rounded).monospacedDigit())
+    // MARK: Chart
+
+    private var weeklyChart: some View {
+        let current = thisWeek?.weekStart
+        return VStack(alignment: .leading, spacing: 0) {
+            SectionHeader("weekly miles")
+            Chart(buckets) { bucket in
+                BarMark(x: .value("Week of", bucket.label),
+                        y: .value("Miles", bucket.miles))
+                    .foregroundStyle(bucket.weekStart == current ? Theme.signal : Theme.fg)
             }
-            Text("\(formatDuration(run.durationSeconds))  ·  \(formatPace(secondsPerMile: run.averagePace)) /mi")
-                .font(.footnote)
-                .foregroundStyle(.secondary)
+            .chartXAxis {
+                AxisMarks { value in
+                    AxisValueLabel {
+                        if let label = value.as(String.self) {
+                            axisText(label)
+                        }
+                    }
+                }
+            }
+            .chartYAxis {
+                AxisMarks(position: .leading) { value in
+                    AxisValueLabel {
+                        if let miles = value.as(Double.self) {
+                            axisText(String(format: "%.0f", miles))
+                        }
+                    }
+                }
+            }
+            .frame(height: 160)
+            .padding(.top, Theme.s3)
         }
     }
 
-    private func workoutRow(_ workout: WorkoutRecord) -> some View {
-        VStack(alignment: .leading, spacing: 2) {
-            Text(workout.name)
-                .font(.headline)
-            HStack {
-                Text(workout.date, style: .date)
-                Text("·")
-                Text("\(workout.repTimes.count) reps")
+    private func axisText(_ text: String) -> some View {
+        Text(text)
+            .font(Theme.mono(.micro))
+            .foregroundStyle(Theme.dim)
+    }
+
+    // MARK: Lists
+
+    private var runsSection: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            SectionHeader("runs")
+            if runs.isEmpty {
+                emptyNote("no runs yet.")
             }
-            .font(.footnote)
-            .foregroundStyle(.secondary)
+            LazyVStack(alignment: .leading, spacing: 0) {
+                ForEach(runs) { run in
+                    NavigationLink {
+                        RunDetailView(run: run)
+                    } label: {
+                        runRow(run)
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+        }
+    }
+
+    private var workoutsSection: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            SectionHeader("workouts")
+            if workouts.isEmpty {
+                emptyNote("no workouts yet.")
+            }
+            LazyVStack(alignment: .leading, spacing: 0) {
+                ForEach(workouts) { workout in
+                    NavigationLink {
+                        WorkoutDetailView(workout: workout)
+                    } label: {
+                        workoutRow(workout)
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+        }
+    }
+
+    private func emptyNote(_ text: String) -> some View {
+        Text(text)
+            .font(Theme.mono(.body))
+            .foregroundStyle(Theme.dim)
+            .padding(.vertical, Theme.s2)
+    }
+
+    private func runRow(_ run: RunRecord) -> some View {
+        let time = run.durationSeconds > 0 ? formatDuration(run.durationSeconds) : "--"
+        return ReadoutRow(key: ReadoutFormat.day(run.date),
+                          value: formatMiles(run.distanceMeters) + "  " + time)
+    }
+
+    private func workoutRow(_ workout: WorkoutRecord) -> some View {
+        return VStack(alignment: .leading, spacing: 0) {
+            ReadoutRow(key: ReadoutFormat.day(workout.date),
+                       value: "\(workout.repTimes.count) reps",
+                       ruled: false)
+            Text(workout.name)
+                .font(Theme.mono(.micro))
+                .foregroundStyle(Theme.dim)
+                .padding(.bottom, Theme.s2)
+            DashedRule()
         }
     }
 }
@@ -156,9 +205,13 @@ struct AddMilesView: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(\.modelContext) private var modelContext
 
-    @State private var date: Date = Date()
+    @State private var daysAgo: Int = 0
     @State private var milesText: String = ""
     @State private var durationText: String = ""
+
+    private func date(daysAgo days: Int) -> Date {
+        return Calendar.current.date(byAdding: .day, value: -days, to: Date()) ?? Date()
+    }
 
     private var parsedMiles: Double? {
         let cleaned = milesText.replacingOccurrences(of: ",", with: ".")
@@ -177,38 +230,65 @@ struct AddMilesView: View {
         return parsedMiles != nil && parsedDuration != nil
     }
 
+    private var milesNote: String? {
+        if milesText.isEmpty || parsedMiles != nil { return nil }
+        return "enter miles like 3.1"
+    }
+
+    private var durationNote: String? {
+        return parsedDuration == nil ? "time like 32:10 or 1:05:00" : nil
+    }
+
     var body: some View {
-        NavigationStack {
-            Form {
-                DatePicker("Date", selection: $date, in: ...Date(), displayedComponents: [.date])
-                TextField("Miles", text: $milesText)
-                    .keyboardType(.decimalPad)
-                TextField("Time (optional, m:ss or h:mm:ss)", text: $durationText)
-                    .keyboardType(.numbersAndPunctuation)
-            }
-            .navigationTitle("Add Miles")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("Cancel") {
-                        dismiss()
-                    }
+        VStack(spacing: 0) {
+            StatusLine(left: "milepace", center: "add miles", right: "")
+            HStack {
+                BracketButton(title: "cancel", minHeight: 44, fullWidth: false) {
+                    dismiss()
                 }
-                ToolbarItem(placement: .confirmationAction) {
-                    Button("Save") {
+                Spacer(minLength: 0)
+            }
+            .padding(.horizontal, Theme.s3)
+            .padding(.top, Theme.s2)
+            ScrollView {
+                VStack(alignment: .leading, spacing: 0) {
+                    SectionHeader("manual run")
+                    StepperRow(title: "date",
+                               value: $daysAgo,
+                               range: 0...365,
+                               format: { days in ReadoutFormat.day(date(daysAgo: days)) },
+                               keyWidth: 5)
+                    FieldRow(key: "miles",
+                             placeholder: "0.0",
+                             text: $milesText,
+                             note: milesNote,
+                             keyboard: .decimalPad)
+                    FieldRow(key: "time",
+                             placeholder: "m:ss",
+                             text: $durationText,
+                             note: durationNote,
+                             keyboard: .numbersAndPunctuation)
+                    Text("time is optional.")
+                        .font(Theme.mono(.micro))
+                        .foregroundStyle(Theme.dim)
+                        .padding(.top, Theme.s2)
+                    BracketButton(title: "save", style: .signal, minHeight: 72, isEnabled: canSave) {
                         save()
                     }
-                    .disabled(!canSave)
+                    .padding(.top, Theme.s4)
                 }
+                .padding(.horizontal, Theme.s3)
             }
+            .scrollDismissesKeyboard(.interactively)
         }
+        .instrumentScreen()
     }
 
     private func save() {
         guard let miles = parsedMiles, let duration = parsedDuration else { return }
         let meters = miles * metersPerMile
         let pace = duration > 0 ? duration / meters * metersPerMile : 0
-        let record = RunRecord(date: date,
+        let record = RunRecord(date: date(daysAgo: daysAgo),
                                distanceMeters: meters,
                                durationSeconds: duration,
                                averagePace: pace,
@@ -219,82 +299,193 @@ struct AddMilesView: View {
     }
 }
 
+/// Full-width two-step delete: the first tap arms it, the second confirms.
+struct ConfirmDeleteButton: View {
+    let title: String
+    let onConfirm: () -> Void
+
+    @State private var armed: Bool = false
+
+    init(title: String, onConfirm: @escaping () -> Void) {
+        self.title = title
+        self.onConfirm = onConfirm
+    }
+
+    var body: some View {
+        let style: BracketStyle = armed ? .inverted : .plain
+        return BracketButton(title: armed ? "tap again to delete" : title, style: style) {
+            if armed {
+                onConfirm()
+            } else {
+                armed = true
+            }
+        }
+    }
+}
+
 struct RunDetailView: View {
     @Bindable var run: RunRecord
 
+    @Environment(\.dismiss) private var dismiss
+    @Environment(\.modelContext) private var modelContext
+
     @State private var route: [RoutePoint] = []
+    /// Set just before deleting so the body stops reading the model.
+    @State private var removed: Bool = false
 
     var body: some View {
-        Form {
-            if route.count >= 2 {
-                Section {
-                    RunMapView(route: route, averagePace: run.averagePace)
-                        .listRowInsets(EdgeInsets(top: 8, leading: 0, bottom: 8, trailing: 0))
-                        .listRowBackground(Color.clear)
-                }
-            }
-            Section {
-                detailRow("Date", Text(run.date, style: .date))
-                detailRow("Distance", Text("\(formatMiles(run.distanceMeters)) mi"))
-                if run.durationSeconds > 0 {
-                    detailRow("Time", Text(formatDuration(run.durationSeconds)))
-                }
-                detailRow("Average pace", Text("\(formatPace(secondsPerMile: run.averagePace)) /mi"))
-                if run.averageCadence > 0 {
-                    detailRow("Average cadence", Text("\(Int(run.averageCadence.rounded())) spm"))
-                }
-            }
-            if !run.splits.isEmpty {
-                Section("Mile splits") {
-                    ForEach(Array(run.splits.enumerated()), id: \.offset) { item in
-                        detailRow("Mile \(item.offset + 1)", Text(formatDuration(item.element)))
-                    }
-                }
-            }
-            Section("Notes") {
-                TextField("Notes", text: $run.notes, axis: .vertical)
-                    .lineLimit(1...6)
+        VStack(spacing: 0) {
+            if removed {
+                Color.clear
+            } else {
+                content
             }
         }
-        .navigationTitle("Run")
-        .navigationBarTitleDisplayMode(.inline)
+        .instrumentScreen()
+        .toolbar(.hidden, for: .navigationBar)
         .onAppear {
             route = run.route
         }
     }
 
-    private func detailRow(_ title: String, _ value: Text) -> some View {
-        HStack {
-            Text(title)
-            Spacer()
-            value
-                .font(.system(.body, design: .rounded).monospacedDigit())
+    private var content: some View {
+        VStack(spacing: 0) {
+            StatusLine(left: "milepace", center: "run", right: ReadoutFormat.day(run.date))
+            backBar
+            ScrollView {
+                VStack(alignment: .leading, spacing: 0) {
+                    if route.count >= 2 {
+                        RunMapView(route: route, averagePace: run.averagePace)
+                            .padding(.top, Theme.s2)
+                    }
+                    numbers
+                    splitsBlock
+                    SectionHeader("notes")
+                    BoxedField(placeholder: "notes", text: $run.notes, lines: 1...6)
+                        .padding(.top, Theme.s2)
+                    ConfirmDeleteButton(title: "delete run") {
+                        delete()
+                    }
+                    .padding(.top, Theme.s4)
+                    .padding(.bottom, Theme.s3)
+                }
+                .padding(.horizontal, Theme.s3)
+            }
+            .scrollDismissesKeyboard(.interactively)
         }
+    }
+
+    private var backBar: some View {
+        HStack {
+            BracketButton(title: "back", minHeight: 44, fullWidth: false) {
+                dismiss()
+            }
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, Theme.s3)
+        .padding(.top, Theme.s2)
+    }
+
+    private var numbers: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            SectionHeader("run")
+            ReadoutRow(key: "dist", value: formatMiles(run.distanceMeters) + " mi")
+            if run.durationSeconds > 0 {
+                ReadoutRow(key: "time", value: formatDuration(run.durationSeconds))
+            }
+            ReadoutRow(key: "avg /mi", value: formatPace(secondsPerMile: run.averagePace))
+            if run.averageCadence > 0 {
+                ReadoutRow(key: "cadence", value: "\(Int(run.averageCadence.rounded())) spm")
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var splitsBlock: some View {
+        if !run.splits.isEmpty {
+            VStack(alignment: .leading, spacing: 0) {
+                SectionHeader("mile splits")
+                Tape(rows: splitRows)
+                    .padding(.top, Theme.s2)
+            }
+        }
+    }
+
+    private var splitRows: [TapeRow] {
+        var rows: [TapeRow] = []
+        for (index, split) in run.splits.enumerated() {
+            rows.append(TapeRow(id: index + 1, key: "\(index + 1)", value: formatDuration(split)))
+        }
+        return rows
+    }
+
+    private func delete() {
+        removed = true
+        modelContext.delete(run)
+        dismiss()
     }
 }
 
 struct WorkoutDetailView: View {
     let workout: WorkoutRecord
 
+    @Environment(\.dismiss) private var dismiss
+    @Environment(\.modelContext) private var modelContext
+
+    /// Set just before deleting so the body stops reading the model.
+    @State private var removed: Bool = false
+
     var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 12) {
-                Text(workout.name)
-                    .font(.title2.weight(.bold))
-                Text(workout.date, style: .date)
-                    .foregroundStyle(.secondary)
-                if let spec = workout.spec {
-                    WorkoutResultsTable(spec: spec,
-                                        repTimes: workout.repTimes,
-                                        lapSplits: workout.lapSplits)
-                } else {
-                    Text("Workout details are unavailable.")
-                        .foregroundStyle(.secondary)
-                }
+        VStack(spacing: 0) {
+            if removed {
+                Color.clear
+            } else {
+                content
             }
-            .padding()
         }
-        .navigationTitle("Workout")
-        .navigationBarTitleDisplayMode(.inline)
+        .instrumentScreen()
+        .toolbar(.hidden, for: .navigationBar)
+    }
+
+    private var content: some View {
+        VStack(spacing: 0) {
+            StatusLine(left: "milepace", center: "workout", right: ReadoutFormat.day(workout.date))
+            HStack {
+                BracketButton(title: "back", minHeight: 44, fullWidth: false) {
+                    dismiss()
+                }
+                Spacer(minLength: 0)
+            }
+            .padding(.horizontal, Theme.s3)
+            .padding(.top, Theme.s2)
+            ScrollView {
+                VStack(alignment: .leading, spacing: 0) {
+                    SectionHeader(workout.name)
+                    if let spec = workout.spec {
+                        WorkoutResultsTable(spec: spec,
+                                            repTimes: workout.repTimes,
+                                            lapSplits: workout.lapSplits)
+                            .padding(.top, Theme.s2)
+                    } else {
+                        Text("workout details are unavailable.")
+                            .font(Theme.mono(.body))
+                            .foregroundStyle(Theme.dim)
+                            .padding(.top, Theme.s2)
+                    }
+                    ConfirmDeleteButton(title: "delete workout") {
+                        delete()
+                    }
+                    .padding(.top, Theme.s4)
+                    .padding(.bottom, Theme.s3)
+                }
+                .padding(.horizontal, Theme.s3)
+            }
+        }
+    }
+
+    private func delete() {
+        removed = true
+        modelContext.delete(workout)
+        dismiss()
     }
 }

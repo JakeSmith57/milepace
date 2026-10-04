@@ -7,18 +7,44 @@ struct PaceSample: Equatable {
     var longitude: Double
     var horizontalAccuracy: Double
     var speed: Double
+    /// Accuracy of `speed` in m/s; negative when unknown.
+    var speedAccuracy: Double
+    /// Direction of travel in degrees; negative when unknown.
+    var course: Double
 
     init(timestamp: Date,
          latitude: Double,
          longitude: Double,
          horizontalAccuracy: Double,
-         speed: Double = -1) {
+         speed: Double = -1,
+         speedAccuracy: Double = -1,
+         course: Double = -1) {
         self.timestamp = timestamp
         self.latitude = latitude
         self.longitude = longitude
         self.horizontalAccuracy = horizontalAccuracy
         self.speed = speed
+        self.speedAccuracy = speedAccuracy
+        self.course = course
     }
+}
+
+/// Why a sample did not add distance.
+enum RejectReason: String, CaseIterable {
+    case paused
+    case accuracy
+    case beforeStart
+    case outOfOrder
+    case jump
+}
+
+/// What `PaceCalculator.add` did with the last sample.
+enum SampleOutcome: Equatable {
+    /// Counted: distance was added.
+    case accepted
+    /// Became the new reference point (first sample, after a resume, or after a long jump).
+    case anchored
+    case rejected(RejectReason)
 }
 
 /// One stored point of a run's route.
@@ -43,6 +69,16 @@ struct PaceCalculator {
     static let maxConsecutiveJumps: Int = 5
     /// Minimum cumulative distance between stored route points.
     static let routeSpacing: Double = 10
+    /// Doppler speed is trusted when its reported accuracy is at most this many m/s.
+    static let maxDopplerSpeedAccuracy: Double = 1.5
+    /// Looser than `maxAccuracy`: speed is still good when the position is mediocre.
+    static let maxDopplerPositionAccuracy: Double = 50
+    /// Time constant of the Doppler speed smoother, in seconds.
+    static let dopplerTimeConstant: Double = 4
+    /// Below this smoothed speed the runner counts as standing still.
+    static let minDopplerSpeed: Double = 0.6
+    /// A Doppler value this recent (in sample time) takes over from the trailing-window pace.
+    static let dopplerFreshSeconds: Double = 3
 
     private struct Mark {
         var date: Date
@@ -50,7 +86,11 @@ struct PaceCalculator {
     }
 
     private(set) var totalDistance: Double = 0
-    private(set) var currentPace: Double?
+    /// Trailing 30 s pace (the v1.1 current pace).
+    private(set) var windowPace: Double?
+    /// Pace from the smoothed Doppler speed; nil when no valid speed or standing still.
+    private(set) var dopplerPace: Double?
+    private(set) var lastOutcome: SampleOutcome = .accepted
     private(set) var splits: [Double] = []
     private(set) var isPaused: Bool = false
     private(set) var startDate: Date?
@@ -65,8 +105,22 @@ struct PaceCalculator {
     private var lastSplitElapsed: Double = 0
     private var jumpCount: Int = 0
     private var nextPointStartsSegment: Bool = true
+    private var dopplerSpeed: Double?
+    private var dopplerUpdatedAt: Date?
+    /// Time of the newest sample seen while not paused.
+    private var clock: Date?
 
     init() {}
+
+    /// Pace shown to the runner: the Doppler pace while a Doppler update is under three seconds old
+    /// (nil when that update says standing still), otherwise the trailing-window pace.
+    var currentPace: Double? {
+        if let updated = dopplerUpdatedAt, let now = clock,
+           now.timeIntervalSince(updated) <= PaceCalculator.dopplerFreshSeconds {
+            return dopplerPace
+        }
+        return windowPace
+    }
 
     /// Great-circle distance in meters between two samples.
     static func distance(from a: PaceSample, to b: PaceSample) -> Double {
@@ -88,8 +142,9 @@ struct PaceCalculator {
         guard !isPaused, startDate != nil else { return }
         isPaused = true
         pauseStart = date
-        currentPace = nil
+        windowPace = nil
         smoothed = nil
+        resetDoppler()
     }
 
     mutating func resume(at date: Date) {
@@ -103,9 +158,43 @@ struct PaceCalculator {
         lastSample = nil
         window = []
         smoothed = nil
-        currentPace = nil
+        windowPace = nil
         jumpCount = 0
         nextPointStartsSegment = true
+        resetDoppler()
+    }
+
+    private mutating func resetDoppler() {
+        dopplerSpeed = nil
+        dopplerUpdatedAt = nil
+        dopplerPace = nil
+    }
+
+    /// Updates the smoothed Doppler speed from a sample. Uses a looser position gate than distance
+    /// and ignores samples without a trustworthy speed, so v1.1 style samples (speed unknown or
+    /// speed accuracy unknown) never touch it.
+    private mutating func updateDoppler(_ sample: PaceSample) {
+        guard sample.speed.isFinite, sample.speed >= 0,
+              sample.speedAccuracy >= 0, sample.speedAccuracy <= PaceCalculator.maxDopplerSpeedAccuracy,
+              sample.horizontalAccuracy >= 0,
+              sample.horizontalAccuracy <= PaceCalculator.maxDopplerPositionAccuracy else { return }
+        if let start = startDate, sample.timestamp < start { return }
+        if let floor = acceptFrom, sample.timestamp < floor { return }
+
+        var speed = sample.speed
+        if let last = dopplerUpdatedAt, let previous = dopplerSpeed {
+            let dt = sample.timestamp.timeIntervalSince(last)
+            guard dt > 0 else { return }
+            let alpha = 1 - exp(-dt / PaceCalculator.dopplerTimeConstant)
+            speed = previous + alpha * (sample.speed - previous)
+        }
+        dopplerSpeed = speed
+        dopplerUpdatedAt = sample.timestamp
+        if speed < PaceCalculator.minDopplerSpeed {
+            dopplerPace = nil
+        } else {
+            dopplerPace = metersPerMile / speed
+        }
     }
 
     /// Stores a route point. Unless `force` is set, points closer than `routeSpacing` meters
@@ -141,27 +230,50 @@ struct PaceCalculator {
     }
 
     /// Feeds one sample. Returns the mile splits (seconds) completed by this sample.
+    /// `lastOutcome` says what happened to the sample.
     @discardableResult
     mutating func add(_ sample: PaceSample) -> [Double] {
-        guard !isPaused else { return [] }
+        guard !isPaused else {
+            lastOutcome = .rejected(.paused)
+            return []
+        }
+        if let latest = clock {
+            if sample.timestamp > latest { clock = sample.timestamp }
+        } else {
+            clock = sample.timestamp
+        }
+        // Doppler speed has its own, looser quality gate, so it runs before the distance gate.
+        updateDoppler(sample)
+
         guard sample.horizontalAccuracy >= 0, sample.horizontalAccuracy <= PaceCalculator.maxAccuracy else {
+            lastOutcome = .rejected(.accuracy)
             return []
         }
         if startDate == nil {
             startDate = sample.timestamp
         }
-        if let start = startDate, sample.timestamp < start { return [] }
-        if let floor = acceptFrom, sample.timestamp < floor { return [] }
+        if let start = startDate, sample.timestamp < start {
+            lastOutcome = .rejected(.beforeStart)
+            return []
+        }
+        if let floor = acceptFrom, sample.timestamp < floor {
+            lastOutcome = .rejected(.beforeStart)
+            return []
+        }
 
         guard let previous = lastSample else {
             lastSample = sample
             window = [Mark(date: sample.timestamp, distance: totalDistance)]
             appendRoutePoint(sample, force: true)
+            lastOutcome = .anchored
             return []
         }
 
         let dt = sample.timestamp.timeIntervalSince(previous.timestamp)
-        guard dt > 0 else { return [] }
+        guard dt > 0 else {
+            lastOutcome = .rejected(.outOfOrder)
+            return []
+        }
 
         let segment = PaceCalculator.distance(from: previous, to: sample)
         if segment / dt > PaceCalculator.maxSpeed {
@@ -171,14 +283,18 @@ struct PaceCalculator {
                 lastSample = sample
                 window = [Mark(date: sample.timestamp, distance: totalDistance)]
                 smoothed = nil
-                currentPace = nil
+                windowPace = nil
                 jumpCount = 0
                 nextPointStartsSegment = true
                 appendRoutePoint(sample, force: true)
+                lastOutcome = .anchored
+            } else {
+                lastOutcome = .rejected(.jump)
             }
             return []
         }
         jumpCount = 0
+        lastOutcome = .accepted
 
         let distanceBefore = totalDistance
         totalDistance += segment
@@ -214,14 +330,14 @@ struct PaceCalculator {
                 } else {
                     smoothed = raw
                 }
-                currentPace = smoothed
+                windowPace = smoothed
             } else {
                 smoothed = nil
-                currentPace = nil
+                windowPace = nil
             }
         } else {
             smoothed = nil
-            currentPace = nil
+            windowPace = nil
         }
 
         return newSplits

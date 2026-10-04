@@ -39,6 +39,8 @@ final class LocationTracker: NSObject, CLLocationManagerDelegate {
     private(set) var workout: RoadWorkoutSession?
     /// Step cadence for the current run.
     let cadence = CadenceTracker()
+    /// GPS quality for the status line. `.off` unless warming up or running.
+    private(set) var gpsState: GPSState = .off
 
     /// Called on each completed mile: (mile number, split seconds, average pace seconds per mile).
     @ObservationIgnored var onMile: (@MainActor (Int, Double, Double?) -> Void)?
@@ -55,6 +57,19 @@ final class LocationTracker: NSObject, CLLocationManagerDelegate {
     @ObservationIgnored private var startedAt = Date()
     @ObservationIgnored private var lastSampleAt: Date?
     @ObservationIgnored private var cueTracker: DistanceCueTracker?
+    /// True while the Run tab wants the GPS warmed up.
+    @ObservationIgnored private var warmupWanted = false
+    /// True while location updates run for warm-up (idle, no background flag).
+    @ObservationIgnored private var warmupActive = false
+    @ObservationIgnored private var warmupStartedAt: Date?
+    /// Latest fix with a valid accuracy, from warm-up or a run.
+    @ObservationIgnored private var lastFix: PaceSample?
+
+    /// Idle warm-up stops by itself after this many seconds to save battery.
+    static let warmupTimeoutSeconds: Double = 180
+    /// A warm-up fix at most this old (seconds) and this accurate (meters) seeds the run.
+    static let seedMaxAge: Double = 3
+    static let seedMaxAccuracy: Double = 20
 
     init(manager: CLLocationManager = CLLocationManager()) {
         self.manager = manager
@@ -81,11 +96,77 @@ final class LocationTracker: NSObject, CLLocationManagerDelegate {
         manager.requestWhenInUseAuthorization()
     }
 
+    // MARK: GPS warm-up
+
+    /// Starts location updates ahead of a run so the first fix is already good when you tap start.
+    /// Does nothing unless authorized and idle. Samples are not fed to any run.
+    func beginWarmup() {
+        warmupWanted = true
+        startWarmupIfPossible()
+    }
+
+    /// Stops warm-up updates when idle.
+    func endWarmup() {
+        warmupWanted = false
+        guard phase == .idle, warmupActive else { return }
+        stopWarmupUpdates(note: "warm-up end")
+    }
+
+    private func startWarmupIfPossible() {
+        guard warmupWanted, phase == .idle, isAuthorized, !warmupActive else { return }
+        warmupActive = true
+        warmupStartedAt = Date()
+        lastFix = nil
+        Diagnostics.shared.setClock(-1)
+        Diagnostics.shared.log(.state, "warm-up begin")
+        manager.startUpdatingLocation()
+        startTimer()
+        refreshGPS()
+    }
+
+    private func stopWarmupUpdates(note: String) {
+        warmupActive = false
+        warmupStartedAt = nil
+        manager.stopUpdatingLocation()
+        stopTimer()
+        lastFix = nil
+        Diagnostics.shared.log(.state, note)
+        refreshGPS()
+    }
+
+    /// The latest warm-up fix, re-stamped at the start time, when it is fresh and accurate enough.
+    private func warmupSeed(at now: Date) -> PaceSample? {
+        guard warmupActive, let fix = lastFix else { return nil }
+        let age = now.timeIntervalSince(fix.timestamp)
+        guard age <= LocationTracker.seedMaxAge,
+              fix.horizontalAccuracy >= 0,
+              fix.horizontalAccuracy <= LocationTracker.seedMaxAccuracy else { return nil }
+        return PaceSample(timestamp: now,
+                          latitude: fix.latitude,
+                          longitude: fix.longitude,
+                          horizontalAccuracy: fix.horizontalAccuracy)
+    }
+
+    private func refreshGPS() {
+        let state: GPSState
+        if phase == .idle && !warmupActive {
+            state = .off
+        } else {
+            let age = lastFix.map { Date().timeIntervalSince($0.timestamp) }
+            state = GPSState.evaluate(accuracy: lastFix?.horizontalAccuracy, age: age)
+        }
+        if state != gpsState {
+            gpsState = state
+        }
+        Diagnostics.shared.setGPS(state)
+    }
+
     // MARK: Run control
 
     func start() {
         guard phase == .idle, isAuthorized else { return }
         let now = Date()
+        let seed = warmupSeed(at: now)
         calculator = PaceCalculator()
         calculator.start(at: now)
         startedAt = now
@@ -97,6 +178,23 @@ final class LocationTracker: NSObject, CLLocationManagerDelegate {
         splits = []
         errorMessage = nil
 
+        let diagnostics = Diagnostics.shared
+        diagnostics.beginRun(at: now)
+        diagnostics.log(.state, "state start")
+        if let seed = seed {
+            // Distance starts from where the runner stands. Position only, no speed, so the
+            // Doppler smoother starts with the first real fix.
+            calculator.add(seed)
+            diagnostics.recordSample(seed,
+                                     outcome: calculator.lastOutcome,
+                                     distance: calculator.totalDistance,
+                                     windowPace: calculator.windowPace,
+                                     dopplerPace: calculator.dopplerPace,
+                                     currentPace: calculator.currentPace,
+                                     cadence: nil,
+                                     elapsed: 0)
+        }
+
         cueTracker = AppSettings.cueInterval.meters.map { DistanceCueTracker(intervalMeters: $0) }
         cueTracker?.update(distance: 0, elapsed: 0)
         cadence.start(at: now)
@@ -104,10 +202,17 @@ final class LocationTracker: NSObject, CLLocationManagerDelegate {
         // Only valid once authorized, and the Info.plist declares the location background mode.
         manager.allowsBackgroundLocationUpdates = true
         manager.showsBackgroundLocationIndicator = true
-        manager.startUpdatingLocation()
+        if !warmupActive {
+            manager.startUpdatingLocation()
+        }
+        // After a warm-up the updates keep running (no restart); they now belong to the run.
+        warmupActive = false
+        warmupWanted = false
+        warmupStartedAt = nil
 
         phase = .running
         startTimer()
+        refreshGPS()
     }
 
     func pause() {
@@ -116,6 +221,7 @@ final class LocationTracker: NSObject, CLLocationManagerDelegate {
         currentPace = nil
         phase = .paused
         refreshClock()
+        Diagnostics.shared.log(.state, "state pause")
     }
 
     func resume() {
@@ -124,6 +230,7 @@ final class LocationTracker: NSObject, CLLocationManagerDelegate {
         lastSampleAt = nil
         phase = .running
         refreshClock()
+        Diagnostics.shared.log(.state, "state resume")
     }
 
     /// Stops tracking and returns the run's summary.
@@ -153,6 +260,13 @@ final class LocationTracker: NSObject, CLLocationManagerDelegate {
         manager.showsBackgroundLocationIndicator = false
         stopTimer()
         phase = .idle
+        warmupActive = false
+        warmupWanted = false
+        warmupStartedAt = nil
+        lastFix = nil
+        Diagnostics.shared.log(.state, "state stop")
+        Diagnostics.shared.setClock(-1)
+        refreshGPS()
         return summary
     }
 
@@ -231,7 +345,16 @@ final class LocationTracker: NSObject, CLLocationManagerDelegate {
     }
 
     private func tick() {
+        if phase == .idle {
+            tickWarmup()
+            return
+        }
         refreshClock()
+        refreshGPS()
+        let diagnostics = Diagnostics.shared
+        diagnostics.setClock(elapsed)
+        diagnostics.setCadence(cadence.currentSPM)
+        diagnostics.refresh(now: Date())
         guard phase == .running else { return }
         if let last = lastSampleAt, Date().timeIntervalSince(last) > 10 {
             currentPace = nil
@@ -241,11 +364,58 @@ final class LocationTracker: NSObject, CLLocationManagerDelegate {
         onTick?(currentPace)
     }
 
+    /// One-second tick while idle: warm-up timeout and GPS status.
+    private func tickWarmup() {
+        guard warmupActive else { return }
+        if let began = warmupStartedAt,
+           Date().timeIntervalSince(began) >= LocationTracker.warmupTimeoutSeconds {
+            warmupWanted = false
+            stopWarmupUpdates(note: "warm-up timeout")
+            return
+        }
+        refreshGPS()
+        Diagnostics.shared.refresh(now: Date())
+    }
+
     private func handle(_ samples: [PaceSample]) {
-        guard phase == .running else { return }
+        let diagnostics = Diagnostics.shared
+        for sample in samples {
+            diagnostics.noteFix(sample)
+            if sample.horizontalAccuracy >= 0 {
+                lastFix = sample
+            }
+        }
+        refreshGPS()
+
+        guard phase == .running else {
+            // Warm-up fixes (and fixes while paused) never reach the run calculator.
+            if phase == .paused {
+                for sample in samples {
+                    diagnostics.recordSample(sample,
+                                             outcome: .rejected(.paused),
+                                             distance: calculator.totalDistance,
+                                             windowPace: nil,
+                                             dopplerPace: nil,
+                                             currentPace: nil,
+                                             cadence: cadence.currentSPM,
+                                             elapsed: elapsed)
+                }
+            }
+            return
+        }
         for sample in samples {
             let before = calculator.splits.count
             calculator.add(sample)
+            let sampleElapsed = calculator.elapsed(at: sample.timestamp)
+            diagnostics.setClock(sampleElapsed)
+            diagnostics.recordSample(sample,
+                                     outcome: calculator.lastOutcome,
+                                     distance: calculator.totalDistance,
+                                     windowPace: calculator.windowPace,
+                                     dopplerPace: calculator.dopplerPace,
+                                     currentPace: calculator.currentPace,
+                                     cadence: cadence.currentSPM,
+                                     elapsed: sampleElapsed)
             let after = calculator.splits.count
             if after > before {
                 for index in before..<after {
@@ -286,6 +456,8 @@ final class LocationTracker: NSObject, CLLocationManagerDelegate {
 
     private func setAuthorization(_ status: CLAuthorizationStatus) {
         authorization = status
+        // Permission may have just been granted while the Run tab is waiting to warm up.
+        startWarmupIfPossible()
     }
 
     private func setError(_ message: String) {
@@ -300,7 +472,9 @@ final class LocationTracker: NSObject, CLLocationManagerDelegate {
                        latitude: location.coordinate.latitude,
                        longitude: location.coordinate.longitude,
                        horizontalAccuracy: location.horizontalAccuracy,
-                       speed: location.speed)
+                       speed: location.speed,
+                       speedAccuracy: location.speedAccuracy,
+                       course: location.course)
         }
         Task { @MainActor in
             self.handle(samples)

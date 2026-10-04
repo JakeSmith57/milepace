@@ -3,6 +3,7 @@ import MapKit
 import CoreLocation
 
 /// Route map colored by pace relative to the run average, with start, finish and mile markers.
+/// Faster is signal blue, steady is the foreground color and slower is dim.
 struct RunMapView: View {
     private struct MileMarker: Identifiable {
         let id: Int
@@ -29,9 +30,9 @@ struct RunMapView: View {
 
     private func color(_ band: PaceBand) -> Color {
         switch band {
-        case .faster: return .green
-        case .steady: return .orange
-        case .slower: return .blue
+        case .faster: return Theme.signal
+        case .steady: return Theme.fg
+        case .slower: return Theme.dim
         }
     }
 
@@ -42,47 +43,71 @@ struct RunMapView: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Map(initialPosition: .automatic) {
-                ForEach(segments) { segment in
-                    MapPolyline(coordinates: coordinates(segment))
-                        .stroke(color(segment.band), lineWidth: 5)
-                }
-                Marker("Start", systemImage: "flag", coordinate: start)
-                    .tint(.green)
-                Marker("Finish", systemImage: "flag.checkered", coordinate: end)
-                    .tint(.red)
-                ForEach(markers) { marker in
-                    Annotation("", coordinate: marker.coordinate) {
-                        Text("\(marker.id)")
-                            .font(.caption2.bold())
-                            .padding(4)
-                            .background(.orange, in: Circle())
-                            .foregroundStyle(.white)
-                    }
-                }
-            }
-            .mapStyle(.standard(elevation: .flat))
-            .frame(height: 260)
-            .clipShape(RoundedRectangle(cornerRadius: 16))
-
-            HStack(spacing: 12) {
-                legendItem("Faster", color: .green)
-                legendItem("Steady", color: .orange)
-                legendItem("Slower", color: .blue)
-                Text("than average")
-                    .foregroundStyle(.secondary)
-            }
-            .font(.caption)
+        VStack(alignment: .leading, spacing: Theme.s2) {
+            mapView
+                .frame(height: 260)
+                .overlay(Rectangle().strokeBorder(Theme.fg, lineWidth: Theme.rule))
+            legend
         }
     }
 
-    private func legendItem(_ title: String, color: Color) -> some View {
+    private var mapView: some View {
+        Map(initialPosition: .automatic) {
+            ForEach(segments) { segment in
+                MapPolyline(coordinates: coordinates(segment))
+                    .stroke(color(segment.band), lineWidth: 5)
+            }
+            Annotation("", coordinate: start) {
+                square(Theme.fg)
+            }
+            Annotation("", coordinate: end) {
+                square(Theme.signal)
+            }
+            ForEach(markers) { marker in
+                Annotation("", coordinate: marker.coordinate) {
+                    mileLabel(marker.id)
+                }
+            }
+        }
+        .mapStyle(.standard(elevation: .flat, emphasis: .muted, pointsOfInterest: .excludingAll))
+    }
+
+    /// Start and finish markers: tiny squares.
+    private func square(_ fill: Color) -> some View {
+        Rectangle()
+            .fill(fill)
+            .frame(width: 10, height: 10)
+            .overlay(Rectangle().strokeBorder(Theme.bg, lineWidth: 1))
+    }
+
+    /// Mile markers: micro text in an inverted box.
+    private func mileLabel(_ mile: Int) -> some View {
+        Text("\(mile)")
+            .font(Theme.mono(.micro))
+            .foregroundStyle(Theme.bg)
+            .padding(.horizontal, 4)
+            .padding(.vertical, 1)
+            .background(Theme.fg)
+    }
+
+    private var legend: some View {
+        HStack(spacing: Theme.s3) {
+            legendItem("faster", fill: Theme.signal)
+            legendItem("steady", fill: Theme.fg)
+            legendItem("slower", fill: Theme.dim)
+            Text("than avg")
+                .foregroundStyle(Theme.dim)
+        }
+        .font(Theme.mono(.micro))
+    }
+
+    private func legendItem(_ title: String, fill: Color) -> some View {
         HStack(spacing: 4) {
-            Capsule()
-                .fill(color)
-                .frame(width: 16, height: 5)
+            Rectangle()
+                .fill(fill)
+                .frame(width: 12, height: 4)
             Text(title)
+                .foregroundStyle(Theme.fg)
         }
     }
 }

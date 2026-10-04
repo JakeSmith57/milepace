@@ -16,6 +16,25 @@ enum SettingsKey {
     static let metronomeEnabled = "metronomeEnabled"
     static let metronomeBPM = "metronomeBPM"
     static let metronomeVolume = "metronomeVolume"
+    static let displayMode = "displayMode"
+    static let diagnostics = "diagnosticsEnabled"
+}
+
+/// Light, dark or follow the system.
+enum DisplayMode: String, CaseIterable, Identifiable {
+    case system
+    case dark
+    case light
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .system: return "system"
+        case .dark: return "dark"
+        case .light: return "light"
+        }
+    }
 }
 
 /// What the run screen is set up to do.
@@ -81,7 +100,9 @@ enum AppSettings {
             SettingsKey.runMode: RunMode.free.rawValue,
             SettingsKey.metronomeEnabled: false,
             SettingsKey.metronomeBPM: defaultMetronomeBPM,
-            SettingsKey.metronomeVolume: defaultMetronomeVolume
+            SettingsKey.metronomeVolume: defaultMetronomeVolume,
+            SettingsKey.displayMode: DisplayMode.system.rawValue,
+            SettingsKey.diagnostics: false
         ])
     }
 
@@ -106,6 +127,7 @@ enum AppSettings {
     static var trackCountdown: Bool { bool(SettingsKey.trackCountdown, fallback: true) }
     static var lapFeedback: Bool { bool(SettingsKey.lapFeedback, fallback: false) }
     static var haptics: Bool { bool(SettingsKey.haptics, fallback: true) }
+    static var diagnosticsEnabled: Bool { bool(SettingsKey.diagnostics, fallback: false) }
 
     static var cueInterval: CueInterval {
         if let raw = UserDefaults.standard.string(forKey: SettingsKey.cueInterval),

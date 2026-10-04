@@ -12,6 +12,8 @@ struct SettingsView: View {
     @AppStorage(SettingsKey.cueInterval) private var cueInterval: CueInterval = .half
     @AppStorage(SettingsKey.metronomeBPM) private var metronomeBPM: Int = AppSettings.defaultMetronomeBPM
     @AppStorage(SettingsKey.metronomeVolume) private var metronomeVolume: Double = AppSettings.defaultMetronomeVolume
+    @AppStorage(SettingsKey.displayMode) private var displayMode: DisplayMode = .system
+    @AppStorage(SettingsKey.diagnostics) private var diagnosticsEnabled: Bool = false
 
     @State private var mileText: String = ""
     @State private var goalText: String = ""
@@ -22,104 +24,146 @@ struct SettingsView: View {
         return PaceZones.forMile(mileTime)
     }
 
+    private var cueOptions: [Choice<CueInterval>] {
+        return CueInterval.allCases.map { Choice($0, $0.title.lowercased()) }
+    }
+
+    private var displayOptions: [Choice<DisplayMode>] {
+        return DisplayMode.allCases.map { Choice($0, $0.title) }
+    }
+
+    /// Volume as a whole percent, for the stepper.
+    private var volumePercent: Binding<Int> {
+        return Binding(get: { Int((metronomeVolume * 100).rounded()) },
+                       set: { metronomeVolume = Double($0) / 100 })
+    }
+
     private func paceRange(_ range: ClosedRange<Double>) -> String {
-        return "\(formatPace(secondsPerMile: range.lowerBound)) – \(formatPace(secondsPerMile: range.upperBound)) /mi"
+        return ReadoutFormat.paceRange(range) + " /mi"
     }
 
     var body: some View {
-        NavigationStack {
-            Form {
-                Section {
-                    timeField("Current mile", text: $mileText, invalid: mileInvalid)
-                    timeField("Goal mile", text: $goalText, invalid: goalInvalid)
-                } header: {
-                    Text("Mile times")
-                } footer: {
-                    Text("Format m:ss, between 4:00 and 12:00. Training zones come from your current mile. Units are miles.")
+        VStack(spacing: 0) {
+            StatusLine(left: "milepace", center: "set", right: "v1.2")
+            ScrollView {
+                VStack(alignment: .leading, spacing: 0) {
+                    mileTimes
+                    trainingZones
+                    voiceAndFeedback
+                    trackOptions
+                    metronome
+                    display
                 }
-
-                Section("Training zones") {
-                    zoneRow("Easy", paceRange(zones.easy))
-                    zoneRow("Threshold", paceRange(zones.threshold))
-                    zoneRow("Interval", paceRange(zones.interval))
-                    zoneRow("Repetition", "\(formatSplit(zones.rep400.lowerBound)) – \(formatSplit(zones.rep400.upperBound)) /400 m")
-                    zoneRow("Goal pace", "\(formatPace(secondsPerMile: goalMile)) /mi")
-                }
-
-                Section("Voice and feedback") {
-                    Picker("Pace cues every", selection: $cueInterval) {
-                        ForEach(CueInterval.allCases) { interval in
-                            Text(interval.title).tag(interval)
-                        }
-                    }
-                    Toggle("Announce each mile", isOn: $announceMiles)
-                        .disabled(cueInterval != .off)
-                    Toggle("Pace guard cues on runs", isOn: $zoneGuardCues)
-                    Toggle("Rest countdown on track", isOn: $trackCountdown)
-                    Toggle("Lap feedback on track", isOn: $lapFeedback)
-                    Toggle("Haptics", isOn: $haptics)
-                }
-
-                Section {
-                    Stepper(value: $metronomeBPM, in: ClickTrack.bpmRange, step: 2) {
-                        Text("Default tempo: \(metronomeBPM) spm")
-                    }
-                    HStack {
-                        Text("Volume")
-                        Slider(value: $metronomeVolume, in: 0.1...1.0)
-                    }
-                } header: {
-                    Text("Metronome")
-                } footer: {
-                    Text("A slightly quicker, shorter stride reduces impact per step. Raise cadence gradually, about 5% at a time.")
-                }
+                .padding(.horizontal, Theme.s3)
+                .padding(.bottom, Theme.s4)
             }
-            .navigationTitle("Settings")
-            .onAppear {
-                mileText = formatDuration(mileTime)
-                goalText = formatDuration(goalMile)
+            .scrollDismissesKeyboard(.interactively)
+        }
+        .instrumentScreen()
+        .onAppear {
+            mileText = formatDuration(mileTime)
+            goalText = formatDuration(goalMile)
+        }
+        .onChange(of: mileText) { _, newValue in
+            if let value = parseTime(newValue), AppSettings.validMileRange.contains(value) {
+                mileTime = value
+                mileInvalid = false
+            } else {
+                mileInvalid = true
             }
-            .onChange(of: mileText) { _, newValue in
-                if let value = parseTime(newValue), AppSettings.validMileRange.contains(value) {
-                    mileTime = value
-                    mileInvalid = false
-                } else {
-                    mileInvalid = true
-                }
+        }
+        .onChange(of: goalText) { _, newValue in
+            if let value = parseTime(newValue), AppSettings.validMileRange.contains(value) {
+                goalMile = value
+                goalInvalid = false
+            } else {
+                goalInvalid = true
             }
-            .onChange(of: metronomeVolume) { _, newValue in
-                Metronome.shared.setVolume(Float(newValue))
-            }
-            .onChange(of: goalText) { _, newValue in
-                if let value = parseTime(newValue), AppSettings.validMileRange.contains(value) {
-                    goalMile = value
-                    goalInvalid = false
-                } else {
-                    goalInvalid = true
-                }
-            }
+        }
+        .onChange(of: metronomeVolume) { _, newValue in
+            Metronome.shared.setVolume(Float(newValue))
         }
     }
 
-    private func timeField(_ title: String, text: Binding<String>, invalid: Bool) -> some View {
-        HStack {
-            Text(title)
-            Spacer()
-            TextField("m:ss", text: text)
-                .keyboardType(.numbersAndPunctuation)
-                .multilineTextAlignment(.trailing)
-                .frame(maxWidth: 100)
-                .foregroundStyle(invalid ? Color.red : Color.primary)
+    // MARK: Sections
+
+    private func note(_ text: String) -> some View {
+        Text(text)
+            .font(Theme.mono(.micro))
+            .foregroundStyle(Theme.dim)
+            .padding(.top, Theme.s2)
+    }
+
+    private var mileTimes: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            SectionHeader("mile times")
+            FieldRow(key: "current",
+                     placeholder: "m:ss",
+                     text: $mileText,
+                     note: mileInvalid ? "use m:ss, 4:00 to 12:00" : nil)
+            FieldRow(key: "goal",
+                     placeholder: "m:ss",
+                     text: $goalText,
+                     note: goalInvalid ? "use m:ss, 4:00 to 12:00" : nil)
+            note("training zones come from your current mile. units are miles.")
         }
     }
 
-    private func zoneRow(_ title: String, _ value: String) -> some View {
-        HStack {
-            Text(title)
-            Spacer()
-            Text(value)
-                .font(.system(.body, design: .rounded).monospacedDigit())
-                .foregroundStyle(.secondary)
+    private var trainingZones: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            SectionHeader("training zones")
+            ReadoutRow(key: "easy", value: paceRange(zones.easy), keyWidth: 10)
+            ReadoutRow(key: "threshold", value: paceRange(zones.threshold), keyWidth: 10)
+            ReadoutRow(key: "interval", value: paceRange(zones.interval), keyWidth: 10)
+            ReadoutRow(key: "rep /400m",
+                       value: formatSplit(zones.rep400.lowerBound) + "\u{2013}" + formatSplit(zones.rep400.upperBound),
+                       keyWidth: 10)
+            ReadoutRow(key: "goal", value: formatPace(secondsPerMile: goalMile) + " /mi", keyWidth: 10)
+        }
+    }
+
+    private var voiceAndFeedback: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            SectionHeader("voice and feedback")
+            ChoiceRow(label: "pace cues every", options: cueOptions, selection: $cueInterval)
+            CheckRow(title: "announce each mile", isOn: $announceMiles)
+                .disabled(cueInterval != .off)
+                .opacity(cueInterval == .off ? 1 : 0.35)
+            CheckRow(title: "pace guard cues", isOn: $zoneGuardCues)
+            CheckRow(title: "haptics", isOn: $haptics)
+        }
+    }
+
+    private var trackOptions: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            SectionHeader("track")
+            CheckRow(title: "rest countdown", isOn: $trackCountdown)
+            CheckRow(title: "lap feedback", isOn: $lapFeedback)
+        }
+    }
+
+    private var metronome: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            SectionHeader("metronome")
+            StepperRow(title: "tempo spm",
+                       value: $metronomeBPM,
+                       range: ClickTrack.bpmRange,
+                       step: 2)
+            StepperRow(title: "volume",
+                       value: volumePercent,
+                       range: 10...100,
+                       step: 10,
+                       format: { "\($0)%" })
+            note("a slightly quicker, shorter stride reduces impact per step. raise cadence gradually, about 5% at a time.")
+        }
+    }
+
+    private var display: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            SectionHeader("display")
+            ChoiceRow(label: "appearance", options: displayOptions, selection: $displayMode)
+            CheckRow(title: "diagnostics", isOn: $diagnosticsEnabled)
+            note("diagnostics adds a [ diag ] button to the run screen and keeps a log of gps fixes, pace and voice cues.")
         }
     }
 }

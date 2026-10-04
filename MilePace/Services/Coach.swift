@@ -10,6 +10,14 @@ struct ZoneGuard {
         case pickItUp
     }
 
+    /// What the runner hears for a cue.
+    static func spokenText(for cue: Cue) -> String {
+        switch cue {
+        case .easyUp: return "Slow down"
+        case .pickItUp: return "Speed up"
+        }
+    }
+
     static let outsideSecondsRequired: Double = 20
     static let minSecondsBetweenCues: Double = 60
 
@@ -31,8 +39,14 @@ struct ZoneGuard {
         lastCue = nil
     }
 
-    /// `zone` is a seconds-per-mile range. Too fast (below the lower bound) cues "Easy up";
-    /// too slow (above the upper bound) cues "Pick it up".
+    /// How long pace has been outside the zone, or nil when it is inside (or unknown).
+    func secondsOutside(at now: Date) -> Double? {
+        guard let since = outsideSince else { return nil }
+        return max(0, now.timeIntervalSince(since))
+    }
+
+    /// `zone` is a seconds-per-mile range. Too fast (below the lower bound) cues "Slow down";
+    /// too slow (above the upper bound) cues "Speed up".
     mutating func update(pace: Double?, zone: ClosedRange<Double>?, now: Date) -> Cue? {
         guard let zone = zone, let pace = pace else {
             outsideSince = nil
@@ -103,7 +117,7 @@ final class Coach: NSObject, AVSpeechSynthesizerDelegate {
         if let average = average {
             text += " Average \(spokenCompact(average))."
         }
-        speak(text)
+        speak(text, reason: "mile \(mile)")
     }
 
     func resetZoneGuard() {
@@ -112,10 +126,19 @@ final class Coach: NSObject, AVSpeechSynthesizerDelegate {
 
     func evaluateZone(pace: Double?, zone: ClosedRange<Double>?, now: Date = Date()) {
         guard AppSettings.zoneGuardCues else { return }
-        guard let cue = zoneGuard.update(pace: pace, zone: zone, now: now) else { return }
+        guard let cue = zoneGuard.update(pace: pace, zone: zone, now: now), let range = zone else { return }
+        let reason = zoneReason(cue: cue, zone: range, seconds: zoneGuard.secondsOutside(at: now))
+        speak(ZoneGuard.spokenText(for: cue), reason: reason)
+    }
+
+    /// "21s under 7:58" or "21s over 8:03": how long pace was outside and which bound it crossed.
+    private func zoneReason(cue: ZoneGuard.Cue, zone: ClosedRange<Double>, seconds: Double?) -> String {
+        let whole = Int((seconds ?? 0).rounded())
         switch cue {
-        case .easyUp: speak("Easy up")
-        case .pickItUp: speak("Pick it up")
+        case .easyUp:
+            return "\(whole)s under \(formatPace(secondsPerMile: zone.lowerBound))"
+        case .pickItUp:
+            return "\(whole)s over \(formatPace(secondsPerMile: zone.upperBound))"
         }
     }
 
@@ -128,7 +151,7 @@ final class Coach: NSObject, AVSpeechSynthesizerDelegate {
         if let zone = zone {
             text += " " + ZoneVerdict.phrase(pace: cue.paceSecondsPerMile, zone: zone)
         }
-        speak(text)
+        speak(text, reason: "pace \(formatPace(secondsPerMile: cue.paceSecondsPerMile))")
     }
 
     // MARK: Workout announcements
@@ -140,11 +163,9 @@ final class Coach: NSObject, AVSpeechSynthesizerDelegate {
     /// Pace-guard cue against a rep's target range, with tighter timings than a free run.
     func evaluateRepZone(pace: Double?, zone: ClosedRange<Double>?, now: Date = Date()) {
         guard AppSettings.zoneGuardCues else { return }
-        guard let cue = repGuard.update(pace: pace, zone: zone, now: now) else { return }
-        switch cue {
-        case .easyUp: speak("Easy up")
-        case .pickItUp: speak("Pick it up")
-        }
+        guard let cue = repGuard.update(pace: pace, zone: zone, now: now), let range = zone else { return }
+        let reason = zoneReason(cue: cue, zone: range, seconds: repGuard.secondsOutside(at: now))
+        speak(ZoneGuard.spokenText(for: cue), reason: reason)
     }
 
     func announceWorkoutEvent(_ event: RoadWorkoutSession.Event, spec: RoadWorkoutSpec, repRange: ClosedRange<Double>) {
@@ -222,7 +243,8 @@ final class Coach: NSObject, AVSpeechSynthesizerDelegate {
         synthesizer.stopSpeaking(at: .immediate)
     }
 
-    private func speak(_ text: String) {
+    private func speak(_ text: String, reason: String? = nil) {
+        Diagnostics.shared.logCue(text, reason: reason)
         AudioSessionCoordinator.shared.beginSpeech()
         let utterance = AVSpeechUtterance(string: text)
         utterance.voice = AVSpeechSynthesisVoice(language: "en-US")

@@ -44,7 +44,9 @@ final class Metronome {
         guard !isRunning else { return }
         AudioSessionCoordinator.shared.beginMetronome()
         isRunning = true
-        if !startEngine() {
+        if startEngine() {
+            Diagnostics.shared.log(.audio, "metronome start \(bpm)")
+        } else {
             isRunning = false
             AudioSessionCoordinator.shared.endMetronome()
         }
@@ -55,6 +57,7 @@ final class Metronome {
         haltEngine()
         isRunning = false
         AudioSessionCoordinator.shared.endMetronome()
+        Diagnostics.shared.log(.audio, "metronome stop")
     }
 
     /// Sets the tempo (clamped to the supported range) and restarts the click if it is playing.

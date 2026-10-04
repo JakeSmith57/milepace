@@ -5,8 +5,12 @@ import CoreLocation
 
 @MainActor
 struct RunView: View {
+    /// True while the Run tab is the selected tab. All tabs stay alive, so this drives GPS warm-up.
+    let isActive: Bool
+
     @Environment(LocationTracker.self) private var tracker
     @Environment(\.modelContext) private var modelContext
+    @Environment(\.scenePhase) private var scenePhase
 
     @AppStorage(SettingsKey.mileTime) private var mileTime: Double = AppSettings.defaultMileTime
     @AppStorage(SettingsKey.goalMile) private var goalMile: Double = AppSettings.defaultGoalMile
@@ -16,8 +20,14 @@ struct RunView: View {
     @AppStorage(SettingsKey.metronomeEnabled) private var metronomeEnabled: Bool = false
     @AppStorage(SettingsKey.metronomeBPM) private var metronomeBPM: Int = AppSettings.defaultMetronomeBPM
     @AppStorage(SettingsKey.metronomeVolume) private var metronomeVolume: Double = AppSettings.defaultMetronomeVolume
+    @AppStorage(SettingsKey.diagnostics) private var diagnosticsEnabled: Bool = false
 
     @State private var summary: RunSummary?
+    @State private var showDiagnostics: Bool = false
+
+    init(isActive: Bool) {
+        self.isActive = isActive
+    }
 
     private var zones: PaceZones {
         return PaceZones.forMile(mileTime)
@@ -40,157 +50,206 @@ struct RunView: View {
         return spec.target.range(zones: zones, goalMile: goalMile)
     }
 
-    private func rangeText(_ range: ClosedRange<Double>) -> String {
-        return "\(formatPace(secondsPerMile: range.lowerBound))–\(formatPace(secondsPerMile: range.upperBound)) /mi"
+    private var diagnosticsVisible: Bool {
+        return diagnosticsEnabled && showDiagnostics
     }
 
     var body: some View {
-        NavigationStack {
-            Group {
-                if tracker.phase == .idle {
-                    idleView
-                } else {
-                    activeView
-                }
+        VStack(spacing: 0) {
+            statusLine
+            if tracker.phase == .idle {
+                idleContent
+            } else {
+                activeContent
             }
-            .navigationTitle("Run")
-            .navigationBarTitleDisplayMode(.inline)
         }
+        .instrumentScreen()
         .sheet(item: $summary) { item in
             RunSummaryView(summary: item,
                            onSave: { notes in save(item, notes: notes) },
                            onDiscard: { discard() })
         }
+        .onAppear {
+            syncWarmup()
+        }
+        .onChange(of: isActive) { _, _ in
+            syncWarmup()
+        }
+        .onChange(of: scenePhase) { _, _ in
+            syncWarmup()
+        }
+        .onChange(of: diagnosticsEnabled) { _, enabled in
+            if !enabled {
+                showDiagnostics = false
+            }
+        }
+    }
+
+    // MARK: GPS warm-up
+
+    /// Keeps the GPS warm while the Run tab is showing, the app is in the foreground and nothing
+    /// is being recorded. Everything else stops it.
+    private func syncWarmup() {
+        guard tracker.phase == .idle else { return }
+        if isActive && scenePhase == .active && summary == nil {
+            tracker.beginWarmup()
+        } else {
+            tracker.endWarmup()
+        }
+    }
+
+    // MARK: Status line
+
+    private var diagAccessory: StatusAccessory? {
+        guard diagnosticsEnabled else { return nil }
+        return StatusAccessory(title: "diag", action: { showDiagnostics.toggle() })
+    }
+
+    private var activeCenter: String {
+        if tracker.phase == .paused {
+            return "paused"
+        }
+        let rate = Diagnostics.shared.sampleRateHz
+        var text = tracker.gpsState.label
+        if rate > 0 {
+            text += " \u{00B7} " + String(format: "%.0f", rate) + "hz"
+        }
+        return text
+    }
+
+    private var statusLine: some View {
+        let idle = tracker.phase == .idle
+        return StatusLine(left: "milepace",
+                          center: idle ? tracker.gpsState.label : activeCenter,
+                          right: idle ? "" : formatDuration(tracker.elapsed),
+                          recording: tracker.phase == .running,
+                          searching: tracker.gpsState.isSearching,
+                          accessory: diagAccessory)
     }
 
     // MARK: Idle
 
-    private var zoneDescription: String {
-        guard let range = guardRange else {
-            return "No pace cues. Mile splits are still announced if enabled."
-        }
-        return "\(zoneChoice.title) zone: \(formatPace(secondsPerMile: range.lowerBound)) to \(formatPace(secondsPerMile: range.upperBound)) per mile"
+    private var modeOptions: [Choice<RunMode>] {
+        return RunMode.allCases.map { Choice($0, $0.title.lowercased()) }
     }
 
-    private var idleView: some View {
-        ScrollView {
-            VStack(spacing: 20) {
-                Image(systemName: "figure.run")
-                    .font(.system(size: 48))
-                    .foregroundStyle(.orange)
-                    .padding(.top, 8)
-
-                VStack(alignment: .leading, spacing: 8) {
-                    Text("Mode")
-                        .font(.headline)
-                    Picker("Mode", selection: $runMode) {
-                        ForEach(RunMode.allCases) { mode in
-                            Text(mode.title).tag(mode)
-                        }
-                    }
-                    .pickerStyle(.segmented)
-                }
-
-                if runMode == .free {
-                    freeRunOptions
-                } else {
-                    workoutOptions
-                }
-
-                metronomeRow
-
-                permissionOrStart
-
-                if let message = tracker.errorMessage {
-                    Text(message)
-                        .font(.footnote)
-                        .foregroundStyle(.red)
-                }
-            }
-            .padding()
-        }
-    }
-
-    private var freeRunOptions: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text("Pace guard")
-                .font(.headline)
-            Picker("Zone", selection: $zoneChoice) {
-                ForEach(RunZoneTarget.allCases) { choice in
-                    Text(choice.title).tag(choice)
-                }
-            }
-            .pickerStyle(.segmented)
-            Text(zoneDescription)
-                .font(.footnote)
-                .foregroundStyle(.secondary)
-        }
-    }
-
-    private var workoutOptions: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text("Workout")
-                .font(.headline)
-            Picker("Workout", selection: selectedWorkoutBinding) {
-                ForEach(RoadWorkoutPresets.all) { spec in
-                    Text("\(spec.name)  ·  \(rangeText(repRange(for: spec)))").tag(spec.name)
-                }
-            }
-            .pickerStyle(.menu)
-            .tint(.orange)
-            let spec = selectedWorkout
-            Text("\(spec.name): target \(rangeText(repRange(for: spec))). Warm up first, then tap Start Reps.")
-                .font(.footnote)
-                .foregroundStyle(.secondary)
-        }
-    }
-
-    private var selectedWorkoutBinding: Binding<String> {
-        return Binding(get: { selectedWorkout.name },
-                       set: { workoutName = $0 })
-    }
-
-    private var metronomeRow: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Toggle("Metronome", isOn: $metronomeEnabled)
-                .font(.headline)
-                .tint(.orange)
-            if metronomeEnabled {
-                Stepper(value: $metronomeBPM, in: ClickTrack.bpmRange, step: 2) {
-                    Text("\(metronomeBPM) spm")
-                        .font(.system(.body, design: .rounded).monospacedDigit())
-                }
-            }
-        }
+    private var zoneOptions: [Choice<RunZoneTarget>] {
+        return RunZoneTarget.allCases.map { Choice($0, $0.title.lowercased()) }
     }
 
     @ViewBuilder
-    private var permissionOrStart: some View {
-        if tracker.authorization == .notDetermined {
-            VStack(spacing: 8) {
-                Text("MilePace needs your location to measure pace and distance.")
-                    .font(.footnote)
-                    .foregroundStyle(.secondary)
-                    .multilineTextAlignment(.center)
-                FilledActionButton(title: "Allow Location Access") {
-                    tracker.requestAuthorization()
-                }
-            }
-        } else if tracker.isDenied {
-            VStack(spacing: 8) {
-                Text("Location access is off. Turn on While Using the App for MilePace in Settings to track runs.")
-                    .font(.footnote)
-                    .foregroundStyle(.red)
-                    .multilineTextAlignment(.center)
-                FilledActionButton(title: "Open Settings") {
-                    openSystemSettings()
-                }
-            }
+    private var idleContent: some View {
+        if diagnosticsVisible {
+            DiagnosticsPanel(onClose: { showDiagnostics = false })
         } else {
-            FilledActionButton(title: "Start Run", height: 80) {
-                startRun()
+            VStack(spacing: 0) {
+                ScrollView {
+                    idleSetup
+                }
+                startArea
             }
         }
+    }
+
+    private var idleSetup: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            ChoiceRow(label: "mode", options: modeOptions, selection: $runMode)
+            if runMode == .free {
+                freeRunOptions
+            } else {
+                workoutOptions
+            }
+            metronomeSetup
+            if let message = tracker.errorMessage {
+                Text(message)
+                    .font(Theme.mono(.micro))
+                    .foregroundStyle(Theme.fg)
+                    .padding(.top, Theme.s3)
+            }
+        }
+        .padding(.horizontal, Theme.s3)
+        .padding(.bottom, Theme.s3)
+    }
+
+    private var freeRunOptions: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            ChoiceRow(label: "pace guard", options: zoneOptions, selection: $zoneChoice)
+            ReadoutRow(key: "range /mi", value: guardRangeText)
+        }
+    }
+
+    private var guardRangeText: String {
+        guard let range = guardRange else { return "--" }
+        return ReadoutFormat.paceRange(range)
+    }
+
+    private var workoutOptions: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            Text("workout")
+                .font(Theme.mono(.micro))
+                .foregroundStyle(Theme.dim)
+                .padding(.top, Theme.s2)
+            ForEach(RoadWorkoutPresets.all) { spec in
+                workoutRow(spec)
+            }
+            Text("warm up first, then start reps. target pace in /mi.")
+                .font(Theme.mono(.micro))
+                .foregroundStyle(Theme.dim)
+                .padding(.top, Theme.s2)
+        }
+    }
+
+    private func workoutRow(_ spec: RoadWorkoutSpec) -> some View {
+        let selected = spec.name == selectedWorkout.name
+        return Button {
+            workoutName = spec.name
+        } label: {
+            ReadoutRow(key: spec.name,
+                       value: ReadoutFormat.paceRange(repRange(for: spec)),
+                       selected: selected,
+                       leaders: false)
+        }
+        .buttonStyle(InstrumentButtonStyle())
+    }
+
+    private var metronomeSetup: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            CheckRow(title: "metronome", isOn: $metronomeEnabled)
+            if metronomeEnabled {
+                StepperRow(title: "tempo spm",
+                           value: $metronomeBPM,
+                           range: ClickTrack.bpmRange,
+                           step: 2)
+            }
+        }
+        .padding(.top, Theme.s2)
+    }
+
+    @ViewBuilder
+    private var startArea: some View {
+        VStack(spacing: Theme.s2) {
+            if tracker.authorization == .notDetermined {
+                Text("milepace needs your location to measure pace and distance.")
+                    .font(Theme.mono(.micro))
+                    .foregroundStyle(Theme.dim)
+                BracketButton(title: "allow location") {
+                    tracker.requestAuthorization()
+                }
+            } else if tracker.isDenied {
+                Text("location is off. turn on while using the app for milepace in settings.")
+                    .font(Theme.mono(.micro))
+                    .foregroundStyle(Theme.fg)
+                BracketButton(title: "open settings") {
+                    openSystemSettings()
+                }
+            } else {
+                BracketButton(title: "start", style: .signal, minHeight: 80) {
+                    startRun()
+                }
+            }
+        }
+        .padding(.horizontal, Theme.s3)
+        .padding(.vertical, Theme.s2)
     }
 
     // MARK: Active
@@ -204,14 +263,14 @@ struct RunView: View {
         return guardRange
     }
 
-    private var paceColor: Color {
-        guard let range = activeRange, let pace = tracker.currentPace else { return .primary }
-        return range.contains(pace) ? .primary : .red
-    }
-
     private var cadenceText: String {
         guard let spm = tracker.cadence.currentSPM, spm.isFinite, spm > 0 else { return "--" }
         return "\(Int(spm.rounded()))"
+    }
+
+    private var cadenceValue: String {
+        let click = metronome.isRunning ? "\(metronome.bpm)" : "off"
+        return cadenceText + " \u{2669}" + click
     }
 
     /// Average cadence once there are at least two minutes of running.
@@ -220,105 +279,44 @@ struct RunView: View {
         return tracker.cadence.averageSPM(movingSeconds: tracker.elapsed)
     }
 
-    private var activeView: some View {
+    private var activeContent: some View {
         VStack(spacing: 0) {
-            ScrollView {
-                VStack(spacing: 12) {
-                    if tracker.phase == .paused {
-                        Text("PAUSED")
-                            .font(.headline)
-                            .foregroundStyle(.orange)
-                    }
-                    workoutBanner
-                    BigMetricTile(title: "Current pace",
-                                  value: formatPace(secondsPerMile: tracker.currentPace),
-                                  unit: "/mi",
-                                  valueSize: 96,
-                                  valueColor: paceColor)
-                    HStack(spacing: 12) {
-                        BigMetricTile(title: "Average",
-                                      value: formatPace(secondsPerMile: tracker.averagePace),
-                                      unit: "/mi",
-                                      valueSize: 40)
-                        BigMetricTile(title: "Distance",
-                                      value: formatMiles(tracker.distanceMeters),
-                                      unit: "mi",
-                                      valueSize: 40)
-                    }
-                    HStack(spacing: 12) {
-                        BigMetricTile(title: "Time",
-                                      value: formatDuration(tracker.elapsed),
-                                      valueSize: 40)
-                        BigMetricTile(title: "Cadence",
-                                      value: cadenceText,
-                                      unit: "spm",
-                                      valueSize: 40)
-                    }
-                    metronomeChips
-                    splitsSection
-                }
-                .padding()
+            workoutBanner
+            paceBlock
+            if diagnosticsVisible {
+                DiagnosticsPanel(onClose: { showDiagnostics = false })
+            } else {
+                readoutScroll
             }
-
-            VStack(spacing: 10) {
-                if tracker.phase == .paused {
-                    FilledActionButton(title: "Resume", color: .green) {
-                        tracker.resume()
-                    }
-                } else {
-                    FilledActionButton(title: "Pause", color: .orange) {
-                        tracker.pause()
-                    }
-                }
-                HoldToEndButton(title: "Hold to End") {
-                    endRun()
-                }
-            }
-            .padding(.horizontal)
-            .padding(.bottom)
-            .padding(.top, 8)
+            controls
         }
     }
 
     @ViewBuilder
     private var workoutBanner: some View {
         if let workout = tracker.workout {
-            VStack(spacing: 8) {
-                Text(workout.phaseTitle)
-                    .font(.headline)
-                    .foregroundStyle(.secondary)
-                switch workout.phase {
-                case .warmup:
-                    Text("Warm up at an easy pace.")
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
-                    FilledActionButton(title: "Start Reps", color: .green) {
-                        tracker.startReps()
-                    }
-                case .rep, .recovery:
-                    Text(countdownText(for: workout))
-                        .font(.roundedDigits(56))
-                    if workout.isInRep {
-                        Text("Target \(rangeText(repRange(for: workout.spec)))")
-                            .font(.subheadline)
-                            .foregroundStyle(.secondary)
-                    }
-                    Button("Skip") {
-                        tracker.skipPhase()
-                    }
-                    .buttonStyle(.bordered)
-                    .tint(.orange)
-                case .cooldown:
-                    Text("Cool down easy. End the run when you are done.")
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
-                        .multilineTextAlignment(.center)
-                }
-            }
-            .frame(maxWidth: .infinity)
-            .padding(.vertical, 12)
-            .padding(.horizontal, 12)
-            .background(Color(.secondarySystemBackground), in: RoundedRectangle(cornerRadius: 16))
+            banner(for: workout)
+        }
+    }
+
+    private func banner(for workout: RoadWorkoutSession) -> Banner {
+        let total = workout.spec.reps
+        switch workout.phase {
+        case .warmup:
+            return Banner(title: "warm-up", subtitle: "easy pace, then start reps")
+        case .rep(let number):
+            let target = workout.spec.target.rawValue + " \u{00B7} " + ReadoutFormat.paceRange(repRange(for: workout.spec))
+            return Banner(title: "rep \(number)/\(total)",
+                          subtitle: target,
+                          trailing: countdownText(for: workout),
+                          trailingSub: "left")
+        case .recovery(let number):
+            return Banner(title: "recovery",
+                          subtitle: "next rep \(number + 1)/\(total)",
+                          trailing: countdownText(for: workout),
+                          trailingSub: "left")
+        case .cooldown:
+            return Banner(title: "cool-down", subtitle: "easy, end the run when done")
         }
     }
 
@@ -333,53 +331,117 @@ struct RunView: View {
         return "--"
     }
 
-    private var metronomeChips: some View {
-        HStack(spacing: 12) {
-            Button {
-                toggleMetronome()
-            } label: {
-                Text("♩ \(metronome.bpm)")
-                    .font(.system(.headline, design: .rounded).monospacedDigit())
-                    .padding(.horizontal, 14)
-                    .padding(.vertical, 8)
-                    .foregroundStyle(metronome.isRunning ? Color.white : Color.primary)
-                    .background(metronome.isRunning ? Color.orange : Color(.secondarySystemBackground), in: Capsule())
-            }
-            .buttonStyle(.plain)
+    private var paceBlock: some View {
+        VStack(alignment: .leading, spacing: Theme.s2) {
+            HeroReadout(label: "pace now",
+                        value: formatPace(secondsPerMile: tracker.currentPace),
+                        unit: "/mi",
+                        size: .giant)
+            PaceMeter(pace: tracker.currentPace, zone: activeRange)
+        }
+        .padding(.horizontal, Theme.s3)
+        .padding(.top, Theme.s3)
+        .padding(.bottom, Theme.s2)
+    }
 
-            if let average = averageCadence {
+    private var readoutScroll: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 0) {
+                ReadoutRow(key: "avg", value: formatPace(secondsPerMile: tracker.averagePace))
+                ReadoutRow(key: "dist", value: "\(formatMiles(tracker.distanceMeters)) mi")
+                ReadoutRow(key: "time", value: formatDuration(tracker.elapsed))
                 Button {
-                    matchMetronomeToCadence(average)
+                    toggleMetronome()
                 } label: {
-                    Text("Set to my cadence +5%")
-                        .font(.subheadline.weight(.semibold))
-                        .padding(.horizontal, 14)
-                        .padding(.vertical, 8)
-                        .background(Color(.secondarySystemBackground), in: Capsule())
+                    ReadoutRow(key: "cadence", value: cadenceValue)
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(InstrumentButtonStyle())
+                cadenceMatchButton
+                splitsTape
             }
-            Spacer(minLength: 0)
+            .padding(.horizontal, Theme.s3)
         }
     }
 
     @ViewBuilder
-    private var splitsSection: some View {
-        if !tracker.splits.isEmpty {
-            VStack(alignment: .leading, spacing: 6) {
-                Text("Mile splits")
-                    .font(.headline)
-                ForEach(Array(tracker.splits.enumerated()), id: \.offset) { item in
-                    HStack {
-                        Text("Mile \(item.offset + 1)")
-                        Spacer()
-                        Text(formatDuration(item.element))
-                            .font(.roundedDigits(20, weight: .semibold))
-                    }
-                    Divider()
-                }
+    private var cadenceMatchButton: some View {
+        if let average = averageCadence {
+            BracketButton(title: "set click to cadence +5%",
+                          minHeight: 40,
+                          size: .micro) {
+                matchMetronomeToCadence(average)
             }
-            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.vertical, Theme.s2)
+        }
+    }
+
+    @ViewBuilder
+    private var splitsTape: some View {
+        if !tracker.splits.isEmpty {
+            VStack(alignment: .leading, spacing: 0) {
+                SectionHeader("mile splits")
+                Tape(rows: splitRows, live: true)
+                    .padding(.top, Theme.s2)
+            }
+        }
+    }
+
+    private var splitRows: [TapeRow] {
+        var rows: [TapeRow] = []
+        for (index, split) in tracker.splits.enumerated() {
+            rows.append(TapeRow(id: index + 1, key: "\(index + 1)", value: formatDuration(split)))
+        }
+        return rows
+    }
+
+    private var isPaused: Bool {
+        return tracker.phase == .paused
+    }
+
+    private var controls: some View {
+        VStack(spacing: Theme.s2) {
+            HStack(spacing: Theme.s2) {
+                workoutButton
+                pauseButton
+            }
+            HoldBar(title: "hold to end") {
+                endRun()
+            }
+        }
+        .padding(.horizontal, Theme.s3)
+        .padding(.vertical, Theme.s2)
+    }
+
+    private var pauseButton: some View {
+        let style: BracketStyle = isPaused ? .signal : .plain
+        return BracketButton(title: isPaused ? "resume" : "pause", style: style) {
+            if isPaused {
+                tracker.resume()
+            } else {
+                tracker.pause()
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var workoutButton: some View {
+        if let workout = tracker.workout {
+            switch workout.phase {
+            case .warmup:
+                BracketButton(title: "start reps", style: .signal) {
+                    tracker.startReps()
+                }
+            case .rep:
+                BracketButton(title: "skip rep") {
+                    tracker.skipPhase()
+                }
+            case .recovery:
+                BracketButton(title: "skip rest") {
+                    tracker.skipPhase()
+                }
+            case .cooldown:
+                EmptyView()
+            }
         }
     }
 
@@ -445,6 +507,7 @@ struct RunView: View {
         if metronome.isRunning {
             metronome.stop()
         } else {
+            metronome.setBPM(metronomeBPM)
             metronome.setVolume(Float(min(max(metronomeVolume, 0.1), 1.0)))
             metronome.start()
         }
@@ -468,11 +531,13 @@ struct RunView: View {
         modelContext.insert(record)
         summary = nil
         tracker.reset()
+        syncWarmup()
     }
 
     private func discard() {
         summary = nil
         tracker.reset()
+        syncWarmup()
     }
 
     private func openSystemSettings() {
@@ -481,6 +546,7 @@ struct RunView: View {
     }
 }
 
+/// Shown after a run: map, numbers, splits and notes, then save or discard.
 struct RunSummaryView: View {
     let summary: RunSummary
     let onSave: (String) -> Void
@@ -489,59 +555,80 @@ struct RunSummaryView: View {
     @State private var notes: String = ""
 
     var body: some View {
-        NavigationStack {
-            Form {
-                if summary.route.count >= 2 {
-                    Section {
-                        RunMapView(route: summary.route, averagePace: summary.averagePace)
-                            .listRowInsets(EdgeInsets(top: 8, leading: 0, bottom: 8, trailing: 0))
-                            .listRowBackground(Color.clear)
-                    }
+        VStack(spacing: 0) {
+            StatusLine(left: "milepace",
+                       center: "run summary",
+                       right: ReadoutFormat.day(summary.date))
+            ScrollView {
+                VStack(alignment: .leading, spacing: 0) {
+                    mapBlock
+                    numbers
+                    splitsBlock
+                    SectionHeader("notes")
+                    BoxedField(placeholder: "how did it feel?", text: $notes)
+                        .padding(.top, Theme.s2)
+                    actions
                 }
-                Section("Run") {
-                    if let name = summary.workoutName {
-                        row("Workout", name)
-                    }
-                    row("Distance", "\(formatMiles(summary.distanceMeters)) mi")
-                    row("Time", formatDuration(summary.durationSeconds))
-                    row("Average pace", "\(formatPace(secondsPerMile: summary.averagePace)) /mi")
-                    if let cadence = summary.averageCadence, cadence > 0 {
-                        row("Average cadence", "\(Int(cadence.rounded())) spm")
-                    }
-                }
-                if !summary.splits.isEmpty {
-                    Section("Mile splits") {
-                        ForEach(Array(summary.splits.enumerated()), id: \.offset) { item in
-                            row("Mile \(item.offset + 1)", formatDuration(item.element))
-                        }
-                    }
-                }
-                Section("Notes") {
-                    TextField("How did it feel?", text: $notes, axis: .vertical)
-                        .lineLimit(1...4)
-                }
-                Section {
-                    Button("Save Run") {
-                        onSave(notes)
-                    }
-                    .fontWeight(.semibold)
-                    Button("Discard", role: .destructive) {
-                        onDiscard()
-                    }
-                }
+                .padding(.horizontal, Theme.s3)
+                .padding(.bottom, Theme.s3)
             }
-            .navigationTitle("Run Summary")
-            .navigationBarTitleDisplayMode(.inline)
+            .scrollDismissesKeyboard(.interactively)
         }
+        .instrumentScreen()
         .interactiveDismissDisabled()
     }
 
-    private func row(_ title: String, _ value: String) -> some View {
-        HStack {
-            Text(title)
-            Spacer()
-            Text(value)
-                .font(.system(.body, design: .rounded).monospacedDigit())
+    @ViewBuilder
+    private var mapBlock: some View {
+        if summary.route.count >= 2 {
+            RunMapView(route: summary.route, averagePace: summary.averagePace)
+                .padding(.top, Theme.s3)
         }
+    }
+
+    private var numbers: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            SectionHeader("run")
+            if let name = summary.workoutName {
+                ReadoutRow(key: "workout", value: name)
+            }
+            ReadoutRow(key: "dist", value: "\(formatMiles(summary.distanceMeters)) mi")
+            ReadoutRow(key: "time", value: formatDuration(summary.durationSeconds))
+            ReadoutRow(key: "avg /mi", value: formatPace(secondsPerMile: summary.averagePace))
+            if let cadence = summary.averageCadence, cadence > 0 {
+                ReadoutRow(key: "cadence", value: "\(Int(cadence.rounded())) spm")
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var splitsBlock: some View {
+        if !summary.splits.isEmpty {
+            VStack(alignment: .leading, spacing: 0) {
+                SectionHeader("mile splits")
+                Tape(rows: splitRows)
+                    .padding(.top, Theme.s2)
+            }
+        }
+    }
+
+    private var splitRows: [TapeRow] {
+        var rows: [TapeRow] = []
+        for (index, split) in summary.splits.enumerated() {
+            rows.append(TapeRow(id: index + 1, key: "\(index + 1)", value: formatDuration(split)))
+        }
+        return rows
+    }
+
+    private var actions: some View {
+        VStack(spacing: Theme.s2) {
+            BracketButton(title: "save run", style: .signal) {
+                onSave(notes)
+            }
+            BracketButton(title: "discard") {
+                onDiscard()
+            }
+        }
+        .padding(.top, Theme.s4)
     }
 }

@@ -19,27 +19,35 @@ struct TrackSetupView: View {
     }
 
     var body: some View {
-        NavigationStack {
-            List {
-                ForEach(PresetGroup.allCases) { group in
-                    Section(group.title) {
-                        ForEach(WorkoutPresets.presets(in: group)) { preset in
-                            presetButton(preset)
-                        }
+        VStack(spacing: 0) {
+            StatusLine(left: "milepace", center: "track", right: "goal " + formatSplit(PaceZones.goalPer400) + "/400")
+            ScrollView {
+                VStack(alignment: .leading, spacing: 0) {
+                    ForEach(PresetGroup.allCases) { group in
+                        groupSection(group)
                     }
-                }
-                Section("Custom") {
-                    Button {
+                    SectionHeader("custom")
+                    BracketButton(title: "custom workout") {
                         editing = SetupItem(spec: WorkoutPresets.customSpec(zones: zones))
-                    } label: {
-                        Label("Custom workout", systemImage: "slider.horizontal.3")
                     }
+                    .padding(.top, Theme.s3)
+                    .padding(.bottom, Theme.s3)
                 }
+                .padding(.horizontal, Theme.s3)
             }
-            .navigationTitle("Track")
         }
+        .instrumentScreen()
         .sheet(item: $editing) { item in
             WorkoutEditorView(spec: item.spec)
+        }
+    }
+
+    private func groupSection(_ group: PresetGroup) -> some View {
+        VStack(alignment: .leading, spacing: 0) {
+            SectionHeader(group.title.lowercased())
+            ForEach(WorkoutPresets.presets(in: group)) { preset in
+                presetButton(preset)
+            }
         }
     }
 
@@ -48,25 +56,28 @@ struct TrackSetupView: View {
         return Button {
             editing = SetupItem(spec: spec)
         } label: {
-            VStack(alignment: .leading, spacing: 4) {
-                Text(preset.name)
-                    .font(.headline)
-                    .foregroundStyle(.primary)
+            VStack(alignment: .leading, spacing: 0) {
+                ReadoutRow(key: preset.name,
+                           value: formatSplit(spec.targetRepSeconds),
+                           ruled: false,
+                           leaders: false)
                 Text(summaryLine(for: spec))
-                    .font(.footnote)
-                    .foregroundStyle(.secondary)
+                    .font(Theme.mono(.micro))
+                    .foregroundStyle(Theme.dim)
+                    .padding(.bottom, Theme.s2)
+                DashedRule()
             }
-            .frame(maxWidth: .infinity, alignment: .leading)
         }
+        .buttonStyle(InstrumentButtonStyle())
     }
 
     private func summaryLine(for spec: WorkoutSpec) -> String {
-        var text = "\(formatSplit(spec.targetRepSeconds)) per rep"
+        var text = "per rep"
         if spec.repDistance != 400 {
-            text += "  ·  \(formatSplit(spec.targetPer400)) per 400"
+            text += " \u{00B7} " + formatSplit(spec.targetPer400) + " per 400"
         }
         if spec.totalReps > 1 {
-            text += "  ·  rest \(formatDuration(Double(spec.restSeconds)))"
+            text += " \u{00B7} rest " + formatDuration(Double(spec.restSeconds))
         }
         return text
     }
@@ -124,83 +135,114 @@ struct WorkoutEditorView: View {
         return options
     }
 
+    /// The rep distance as an index into `distanceOptions`, so a stepper can walk the list.
+    private var distanceIndex: Binding<Int> {
+        return Binding(get: { distanceOptions.firstIndex(of: distance) ?? 0 },
+                       set: { newIndex in
+                           let options = distanceOptions
+                           guard !options.isEmpty else { return }
+                           distance = options[min(max(newIndex, 0), options.count - 1)]
+                       })
+    }
+
+    private func distanceText(_ index: Int) -> String {
+        let options = distanceOptions
+        guard index >= 0, index < options.count else { return "--" }
+        return "\(options[index]) m"
+    }
+
     var body: some View {
-        NavigationStack {
-            Form {
-                Section("Workout") {
-                    TextField("Name", text: $name)
-                    Stepper("Reps: \(reps)", value: $reps, in: 1...30)
-                    Picker("Rep distance", selection: $distance) {
-                        ForEach(distanceOptions, id: \.self) { meters in
-                            Text("\(meters) m").tag(meters)
-                        }
-                    }
-                    Stepper("Sets: \(sets)", value: $sets, in: 1...8)
+        VStack(spacing: 0) {
+            StatusLine(left: "milepace", center: "setup", right: "")
+            HStack {
+                BracketButton(title: "back", minHeight: 44, fullWidth: false) {
+                    dismiss()
                 }
-
-                Section {
-                    HStack {
-                        Text("Target per rep")
-                        Spacer()
-                        TextField("m:ss.s", text: $targetText)
-                            .keyboardType(.numbersAndPunctuation)
-                            .multilineTextAlignment(.trailing)
-                            .frame(maxWidth: 120)
-                    }
-                    if let spec = currentSpec {
-                        Text("\(formatSplit(spec.targetPer400)) per 400 m")
-                            .font(.footnote)
-                            .foregroundStyle(.secondary)
-                        if spec.lapsPerRep > 1 {
-                            Text("\(spec.lapsPerRep) lap taps per rep")
-                                .font(.footnote)
-                                .foregroundStyle(.secondary)
-                        }
-                    } else {
-                        Text("Enter a time like 82.5 or 2:05")
-                            .font(.footnote)
-                            .foregroundStyle(.red)
-                    }
-                } header: {
-                    Text("Target")
-                }
-
-                Section("Rest") {
-                    Stepper("Between reps: \(formatDuration(Double(restSeconds)))",
-                            value: $restSeconds, in: 0...900, step: 5)
-                    if sets > 1 {
-                        Stepper("Between sets: \(formatDuration(Double(setRestSeconds)))",
-                                value: $setRestSeconds, in: 0...900, step: 15)
-                    }
-                }
-
-                Section {
-                    Button {
+                Spacer(minLength: 0)
+            }
+            .padding(.horizontal, Theme.s3)
+            .padding(.top, Theme.s2)
+            ScrollView {
+                VStack(alignment: .leading, spacing: 0) {
+                    workoutSection
+                    targetSection
+                    restSection
+                    BracketButton(title: "start workout",
+                                  style: .signal,
+                                  minHeight: 80,
+                                  isEnabled: currentSpec != nil) {
                         if let spec = currentSpec {
                             session = SetupItem(spec: spec)
                         }
-                    } label: {
-                        Text("Start Workout")
-                            .fontWeight(.semibold)
-                            .frame(maxWidth: .infinity)
                     }
-                    .disabled(currentSpec == nil)
+                    .padding(.top, Theme.s4)
+                    .padding(.bottom, Theme.s3)
                 }
+                .padding(.horizontal, Theme.s3)
             }
-            .navigationTitle("Setup")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("Cancel") {
-                        dismiss()
-                    }
-                }
-            }
+            .scrollDismissesKeyboard(.interactively)
         }
+        .instrumentScreen()
         .fullScreenCover(item: $session) { item in
             TrackSessionView(spec: item.spec) {
                 session = nil
                 dismiss()
+            }
+        }
+    }
+
+    private var workoutSection: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            SectionHeader("workout")
+            FieldRow(key: "name",
+                     placeholder: "workout",
+                     text: $name,
+                     keyboard: .default,
+                     fieldWidth: 200)
+            StepperRow(title: "reps", value: $reps, range: 1...30)
+            StepperRow(title: "rep dist",
+                       value: distanceIndex,
+                       range: 0...(distanceOptions.count - 1),
+                       format: { index in distanceText(index) })
+            StepperRow(title: "sets", value: $sets, range: 1...8)
+        }
+    }
+
+    private var targetSection: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            SectionHeader("target")
+            FieldRow(key: "per rep",
+                     placeholder: "m:ss.s",
+                     text: $targetText,
+                     note: currentSpec == nil ? "enter a time like 82.5 or 2:05" : nil)
+            if let spec = currentSpec {
+                Text(formatSplit(spec.targetPer400) + " per 400 m")
+                    .font(Theme.mono(.micro))
+                    .foregroundStyle(Theme.dim)
+                    .padding(.top, Theme.s2)
+                if spec.lapsPerRep > 1 {
+                    Text("\(spec.lapsPerRep) lap taps per rep")
+                        .font(Theme.mono(.micro))
+                        .foregroundStyle(Theme.dim)
+                }
+            }
+        }
+    }
+
+    private var restSection: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            SectionHeader("rest")
+            StepperRow(title: "btw reps",
+                       value: $restSeconds,
+                       range: 0...900,
+                       step: 5,
+                       format: { formatDuration(Double($0)) })
+            if sets > 1 {
+                StepperRow(title: "btw sets",
+                           value: $setRestSeconds,
+                           range: 0...900,
+                           step: 15,
+                           format: { formatDuration(Double($0)) })
             }
         }
     }

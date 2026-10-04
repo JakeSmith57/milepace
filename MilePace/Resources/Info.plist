@@ -30,6 +30,10 @@
 	<string>MilePace uses your location to measure pace and distance during runs.</string>
 	<key>NSMotionUsageDescription</key>
 	<string>MilePace uses motion data to measure your running cadence (steps per minute).</string>
+	<key>UIAppFonts</key>
+	<array>
+		<string>DepartureMono-Regular.otf</string>
+	</array>
 	<key>UIBackgroundModes</key>
 	<array>
 		<string>location</string>
