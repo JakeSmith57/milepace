@@ -54,6 +54,16 @@ struct RunView: View {
         return diagnosticsEnabled && showDiagnostics
     }
 
+    private var store: PlanStore {
+        return PlanStore.shared
+    }
+
+    /// Today's unfinished plan session when it belongs on this tab (easy, long or road).
+    private var todayRunIndex: Int? {
+        guard let schedule = store.schedule else { return nil }
+        return schedule.todays(today: store.todayOffset).first(where: { schedule.plan.sessions[$0].isRunTabSession })
+    }
+
     var body: some View {
         VStack(spacing: 0) {
             statusLine
@@ -71,9 +81,14 @@ struct RunView: View {
         }
         .onAppear {
             syncWarmup()
+            applyPendingRoute()
         }
         .onChange(of: isActive) { _, _ in
             syncWarmup()
+            applyPendingRoute()
+        }
+        .onChange(of: PlanStore.shared.pendingRoute) { _, _ in
+            applyPendingRoute()
         }
         .onChange(of: scenePhase) { _, _ in
             syncWarmup()
@@ -81,6 +96,50 @@ struct RunView: View {
         .onChange(of: diagnosticsEnabled) { _, enabled in
             if !enabled {
                 showDiagnostics = false
+            }
+        }
+    }
+
+    // MARK: Plan
+
+    @ViewBuilder
+    private var planBar: some View {
+        if let index = todayRunIndex, let schedule = store.schedule {
+            PlanBar(text: "today: " + schedule.plan.sessions[index].title, actionTitle: "set up") {
+                store.markActive(index)
+                apply(PlanRoute.route(for: schedule.plan.sessions[index]))
+            }
+        }
+    }
+
+    /// Sets the idle run screen up for a plan route. Track routes belong to the track tab.
+    private func apply(_ route: PlanRoute) {
+        switch route {
+        case .freeRun(let zone):
+            runMode = .free
+            zoneChoice = zone
+        case .roadWorkout(let name):
+            if RoadWorkoutPresets.all.contains(where: { $0.name == name }) {
+                runMode = .workout
+                workoutName = name
+            } else {
+                runMode = .free
+            }
+        case .track:
+            break
+        }
+    }
+
+    /// Takes a pending free-run or road route from the today screen once this tab is showing.
+    private func applyPendingRoute() {
+        guard isActive, let route = store.pendingRoute else { return }
+        switch route {
+        case .track:
+            return
+        case .freeRun, .roadWorkout:
+            store.pendingRoute = nil
+            if tracker.phase == .idle {
+                apply(route)
             }
         }
     }
@@ -143,6 +202,7 @@ struct RunView: View {
             DiagnosticsPanel(onClose: { showDiagnostics = false })
         } else {
             VStack(spacing: 0) {
+                planBar
                 ScrollView {
                     idleSetup
                 }
@@ -529,12 +589,14 @@ struct RunView: View {
                                route: item.route,
                                averageCadence: item.averageCadence ?? 0)
         modelContext.insert(record)
+        store.completeActive()
         summary = nil
         tracker.reset()
         syncWarmup()
     }
 
     private func discard() {
+        store.discardActive()
         summary = nil
         tracker.reset()
         syncWarmup()

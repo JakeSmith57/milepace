@@ -1,0 +1,2269 @@
+{
+ "name": "5:30 mile plan",
+ "startDate": "2026-10-12",
+ "weeks": [
+  {
+   "week": 1,
+   "miles": 5,
+   "phase": 1,
+   "recovery": false,
+   "timeTrial": false,
+   "race": false
+  },
+  {
+   "week": 2,
+   "miles": 6,
+   "phase": 1,
+   "recovery": false,
+   "timeTrial": false,
+   "race": false
+  },
+  {
+   "week": 3,
+   "miles": 7,
+   "phase": 1,
+   "recovery": false,
+   "timeTrial": false,
+   "race": false
+  },
+  {
+   "week": 4,
+   "miles": 5,
+   "phase": 1,
+   "recovery": true,
+   "timeTrial": false,
+   "race": false
+  },
+  {
+   "week": 5,
+   "miles": 8,
+   "phase": 1,
+   "recovery": false,
+   "timeTrial": false,
+   "race": false
+  },
+  {
+   "week": 6,
+   "miles": 9,
+   "phase": 1,
+   "recovery": false,
+   "timeTrial": false,
+   "race": false
+  },
+  {
+   "week": 7,
+   "miles": 10,
+   "phase": 1,
+   "recovery": false,
+   "timeTrial": false,
+   "race": false
+  },
+  {
+   "week": 8,
+   "miles": 8,
+   "phase": 1,
+   "recovery": true,
+   "timeTrial": false,
+   "race": false
+  },
+  {
+   "week": 9,
+   "miles": 11,
+   "phase": 1,
+   "recovery": false,
+   "timeTrial": false,
+   "race": false
+  },
+  {
+   "week": 10,
+   "miles": 12,
+   "phase": 1,
+   "recovery": false,
+   "timeTrial": false,
+   "race": false
+  },
+  {
+   "week": 11,
+   "miles": 13,
+   "phase": 1,
+   "recovery": false,
+   "timeTrial": false,
+   "race": false
+  },
+  {
+   "week": 12,
+   "miles": 10,
+   "phase": 1,
+   "recovery": true,
+   "timeTrial": false,
+   "race": false
+  },
+  {
+   "week": 13,
+   "miles": 14,
+   "phase": 1,
+   "recovery": false,
+   "timeTrial": false,
+   "race": false
+  },
+  {
+   "week": 14,
+   "miles": 16,
+   "phase": 1,
+   "recovery": false,
+   "timeTrial": false,
+   "race": false
+  },
+  {
+   "week": 15,
+   "miles": 17,
+   "phase": 1,
+   "recovery": false,
+   "timeTrial": false,
+   "race": false
+  },
+  {
+   "week": 16,
+   "miles": 13,
+   "phase": 1,
+   "recovery": false,
+   "timeTrial": true,
+   "race": false
+  },
+  {
+   "week": 17,
+   "miles": 18,
+   "phase": 2,
+   "recovery": false,
+   "timeTrial": false,
+   "race": false
+  },
+  {
+   "week": 18,
+   "miles": 19,
+   "phase": 2,
+   "recovery": false,
+   "timeTrial": false,
+   "race": false
+  },
+  {
+   "week": 19,
+   "miles": 21,
+   "phase": 2,
+   "recovery": false,
+   "timeTrial": false,
+   "race": false
+  },
+  {
+   "week": 20,
+   "miles": 16,
+   "phase": 2,
+   "recovery": true,
+   "timeTrial": false,
+   "race": false
+  },
+  {
+   "week": 21,
+   "miles": 22,
+   "phase": 2,
+   "recovery": false,
+   "timeTrial": false,
+   "race": false
+  },
+  {
+   "week": 22,
+   "miles": 23,
+   "phase": 2,
+   "recovery": false,
+   "timeTrial": false,
+   "race": false
+  },
+  {
+   "week": 23,
+   "miles": 24,
+   "phase": 2,
+   "recovery": false,
+   "timeTrial": false,
+   "race": false
+  },
+  {
+   "week": 24,
+   "miles": 19,
+   "phase": 2,
+   "recovery": true,
+   "timeTrial": false,
+   "race": false
+  },
+  {
+   "week": 25,
+   "miles": 25,
+   "phase": 2,
+   "recovery": false,
+   "timeTrial": false,
+   "race": false
+  },
+  {
+   "week": 26,
+   "miles": 26,
+   "phase": 2,
+   "recovery": false,
+   "timeTrial": false,
+   "race": false
+  },
+  {
+   "week": 27,
+   "miles": 27,
+   "phase": 2,
+   "recovery": false,
+   "timeTrial": false,
+   "race": false
+  },
+  {
+   "week": 28,
+   "miles": 21,
+   "phase": 2,
+   "recovery": true,
+   "timeTrial": false,
+   "race": false
+  },
+  {
+   "week": 29,
+   "miles": 27,
+   "phase": 2,
+   "recovery": false,
+   "timeTrial": false,
+   "race": false
+  },
+  {
+   "week": 30,
+   "miles": 21,
+   "phase": 2,
+   "recovery": false,
+   "timeTrial": true,
+   "race": false
+  },
+  {
+   "week": 31,
+   "miles": 25,
+   "phase": 3,
+   "recovery": false,
+   "timeTrial": false,
+   "race": false
+  },
+  {
+   "week": 32,
+   "miles": 26,
+   "phase": 3,
+   "recovery": false,
+   "timeTrial": false,
+   "race": false
+  },
+  {
+   "week": 33,
+   "miles": 27,
+   "phase": 3,
+   "recovery": false,
+   "timeTrial": false,
+   "race": false
+  },
+  {
+   "week": 34,
+   "miles": 21,
+   "phase": 3,
+   "recovery": true,
+   "timeTrial": false,
+   "race": false
+  },
+  {
+   "week": 35,
+   "miles": 27,
+   "phase": 3,
+   "recovery": false,
+   "timeTrial": false,
+   "race": false
+  },
+  {
+   "week": 36,
+   "miles": 28,
+   "phase": 3,
+   "recovery": false,
+   "timeTrial": false,
+   "race": false
+  },
+  {
+   "week": 37,
+   "miles": 28,
+   "phase": 3,
+   "recovery": false,
+   "timeTrial": false,
+   "race": false
+  },
+  {
+   "week": 38,
+   "miles": 22,
+   "phase": 3,
+   "recovery": true,
+   "timeTrial": false,
+   "race": false
+  },
+  {
+   "week": 39,
+   "miles": 28,
+   "phase": 3,
+   "recovery": false,
+   "timeTrial": false,
+   "race": false
+  },
+  {
+   "week": 40,
+   "miles": 28,
+   "phase": 3,
+   "recovery": false,
+   "timeTrial": false,
+   "race": false
+  },
+  {
+   "week": 41,
+   "miles": 26,
+   "phase": 3,
+   "recovery": false,
+   "timeTrial": false,
+   "race": false
+  },
+  {
+   "week": 42,
+   "miles": 21,
+   "phase": 3,
+   "recovery": true,
+   "timeTrial": false,
+   "race": false
+  },
+  {
+   "week": 43,
+   "miles": 27,
+   "phase": 3,
+   "recovery": false,
+   "timeTrial": false,
+   "race": false
+  },
+  {
+   "week": 44,
+   "miles": 21,
+   "phase": 3,
+   "recovery": false,
+   "timeTrial": true,
+   "race": false
+  },
+  {
+   "week": 45,
+   "miles": 24,
+   "phase": 4,
+   "recovery": false,
+   "timeTrial": false,
+   "race": false
+  },
+  {
+   "week": 46,
+   "miles": 22,
+   "phase": 4,
+   "recovery": false,
+   "timeTrial": false,
+   "race": false
+  },
+  {
+   "week": 47,
+   "miles": 18,
+   "phase": 4,
+   "recovery": false,
+   "timeTrial": false,
+   "race": false
+  },
+  {
+   "week": 48,
+   "miles": 13,
+   "phase": 4,
+   "recovery": false,
+   "timeTrial": false,
+   "race": true
+  }
+ ],
+ "sessions": [
+  {
+   "kind": "easy",
+   "miles": 1.5,
+   "title": "1.5 mi easy",
+   "week": 1,
+   "weekday": 2,
+   "phase": 1
+  },
+  {
+   "kind": "easy",
+   "miles": 1.5,
+   "title": "1.5 mi easy",
+   "week": 1,
+   "weekday": 4,
+   "phase": 1
+  },
+  {
+   "kind": "long",
+   "miles": 2.0,
+   "title": "2 mi long, easy",
+   "week": 1,
+   "weekday": 6,
+   "phase": 1
+  },
+  {
+   "kind": "easy",
+   "miles": 2.0,
+   "title": "2 mi easy",
+   "week": 2,
+   "weekday": 2,
+   "phase": 1
+  },
+  {
+   "kind": "easy",
+   "miles": 2.0,
+   "title": "2 mi easy",
+   "week": 2,
+   "weekday": 4,
+   "phase": 1
+  },
+  {
+   "kind": "long",
+   "miles": 2.0,
+   "title": "2 mi long, easy",
+   "week": 2,
+   "weekday": 6,
+   "phase": 1
+  },
+  {
+   "kind": "easy",
+   "miles": 2.0,
+   "title": "2 mi easy",
+   "note": "4×15s strides",
+   "week": 3,
+   "weekday": 2,
+   "phase": 1
+  },
+  {
+   "kind": "easy",
+   "miles": 2.0,
+   "title": "2 mi easy",
+   "week": 3,
+   "weekday": 4,
+   "phase": 1
+  },
+  {
+   "kind": "long",
+   "miles": 3.0,
+   "title": "3 mi long, easy",
+   "week": 3,
+   "weekday": 6,
+   "phase": 1
+  },
+  {
+   "kind": "easy",
+   "miles": 1.5,
+   "title": "1.5 mi easy",
+   "week": 4,
+   "weekday": 2,
+   "phase": 1
+  },
+  {
+   "kind": "easy",
+   "miles": 1.5,
+   "title": "1.5 mi easy",
+   "week": 4,
+   "weekday": 4,
+   "phase": 1
+  },
+  {
+   "kind": "long",
+   "miles": 2.0,
+   "title": "2 mi long, easy",
+   "week": 4,
+   "weekday": 6,
+   "phase": 1
+  },
+  {
+   "kind": "easy",
+   "miles": 2.5,
+   "title": "2.5 mi easy",
+   "note": "4 strides",
+   "week": 5,
+   "weekday": 2,
+   "phase": 1
+  },
+  {
+   "kind": "easy",
+   "miles": 2.5,
+   "title": "2.5 mi easy",
+   "week": 5,
+   "weekday": 4,
+   "phase": 1
+  },
+  {
+   "kind": "long",
+   "miles": 3.0,
+   "title": "3 mi long, easy",
+   "week": 5,
+   "weekday": 6,
+   "phase": 1
+  },
+  {
+   "kind": "easy",
+   "miles": 3.0,
+   "title": "3 mi easy",
+   "note": "4 strides",
+   "week": 6,
+   "weekday": 2,
+   "phase": 1
+  },
+  {
+   "kind": "easy",
+   "miles": 3.0,
+   "title": "3 mi easy",
+   "week": 6,
+   "weekday": 4,
+   "phase": 1
+  },
+  {
+   "kind": "long",
+   "miles": 3.0,
+   "title": "3 mi long, easy",
+   "week": 6,
+   "weekday": 6,
+   "phase": 1
+  },
+  {
+   "kind": "easy",
+   "miles": 3.0,
+   "title": "3 mi easy",
+   "note": "6 strides",
+   "week": 7,
+   "weekday": 2,
+   "phase": 1
+  },
+  {
+   "kind": "easy",
+   "miles": 3.0,
+   "title": "3 mi easy",
+   "week": 7,
+   "weekday": 4,
+   "phase": 1
+  },
+  {
+   "kind": "long",
+   "miles": 4.0,
+   "title": "4 mi long, easy",
+   "week": 7,
+   "weekday": 6,
+   "phase": 1
+  },
+  {
+   "kind": "easy",
+   "miles": 2.5,
+   "title": "2.5 mi easy",
+   "note": "4 strides",
+   "week": 8,
+   "weekday": 2,
+   "phase": 1
+  },
+  {
+   "kind": "easy",
+   "miles": 2.5,
+   "title": "2.5 mi easy",
+   "week": 8,
+   "weekday": 4,
+   "phase": 1
+  },
+  {
+   "kind": "long",
+   "miles": 3.0,
+   "title": "3 mi long, easy",
+   "week": 8,
+   "weekday": 6,
+   "phase": 1
+  },
+  {
+   "kind": "easy",
+   "miles": 2.0,
+   "title": "2 mi easy",
+   "week": 9,
+   "weekday": 1,
+   "phase": 1
+  },
+  {
+   "kind": "easy",
+   "miles": 3.0,
+   "title": "3 mi easy",
+   "note": "6 strides",
+   "week": 9,
+   "weekday": 2,
+   "phase": 1
+  },
+  {
+   "kind": "easy",
+   "miles": 3.0,
+   "title": "3 mi easy",
+   "note": "4×8s hill sprints",
+   "week": 9,
+   "weekday": 4,
+   "phase": 1
+  },
+  {
+   "kind": "long",
+   "miles": 3.0,
+   "title": "3 mi long, easy",
+   "week": 9,
+   "weekday": 6,
+   "phase": 1
+  },
+  {
+   "kind": "easy",
+   "miles": 2.0,
+   "title": "2 mi easy",
+   "week": 10,
+   "weekday": 1,
+   "phase": 1
+  },
+  {
+   "kind": "easy",
+   "miles": 3.0,
+   "title": "3 mi easy",
+   "note": "6 strides",
+   "week": 10,
+   "weekday": 2,
+   "phase": 1
+  },
+  {
+   "kind": "easy",
+   "miles": 3.0,
+   "title": "3 mi easy",
+   "note": "6 hill sprints",
+   "week": 10,
+   "weekday": 4,
+   "phase": 1
+  },
+  {
+   "kind": "long",
+   "miles": 4.0,
+   "title": "4 mi long, easy",
+   "week": 10,
+   "weekday": 6,
+   "phase": 1
+  },
+  {
+   "kind": "easy",
+   "miles": 3.0,
+   "title": "3 mi easy",
+   "week": 11,
+   "weekday": 1,
+   "phase": 1
+  },
+  {
+   "kind": "easy",
+   "miles": 3.0,
+   "title": "3 mi easy",
+   "note": "6 strides",
+   "week": 11,
+   "weekday": 2,
+   "phase": 1
+  },
+  {
+   "kind": "easy",
+   "miles": 3.0,
+   "title": "3 mi easy",
+   "note": "6 hill sprints",
+   "week": 11,
+   "weekday": 4,
+   "phase": 1
+  },
+  {
+   "kind": "long",
+   "miles": 4.0,
+   "title": "4 mi long, easy",
+   "week": 11,
+   "weekday": 6,
+   "phase": 1
+  },
+  {
+   "kind": "easy",
+   "miles": 2.0,
+   "title": "2 mi easy",
+   "week": 12,
+   "weekday": 1,
+   "phase": 1
+  },
+  {
+   "kind": "easy",
+   "miles": 2.5,
+   "title": "2.5 mi easy",
+   "note": "4 strides",
+   "week": 12,
+   "weekday": 2,
+   "phase": 1
+  },
+  {
+   "kind": "easy",
+   "miles": 2.5,
+   "title": "2.5 mi easy",
+   "note": "4 hill sprints",
+   "week": 12,
+   "weekday": 4,
+   "phase": 1
+  },
+  {
+   "kind": "long",
+   "miles": 3.0,
+   "title": "3 mi long, easy",
+   "week": 12,
+   "weekday": 6,
+   "phase": 1
+  },
+  {
+   "kind": "easy",
+   "miles": 2.0,
+   "title": "2 mi easy",
+   "week": 13,
+   "weekday": 1,
+   "phase": 1
+  },
+  {
+   "kind": "easy",
+   "miles": 3.0,
+   "title": "3 mi easy",
+   "note": "6 strides",
+   "week": 13,
+   "weekday": 2,
+   "phase": 1
+  },
+  {
+   "kind": "easy",
+   "miles": 2.0,
+   "title": "2 mi easy",
+   "note": "+ 4–6 strides",
+   "week": 13,
+   "weekday": 4,
+   "phase": 1
+  },
+  {
+   "kind": "easy",
+   "miles": 3.0,
+   "title": "3 mi easy",
+   "note": "8 hill sprints",
+   "week": 13,
+   "weekday": 5,
+   "phase": 1
+  },
+  {
+   "kind": "long",
+   "miles": 4.0,
+   "title": "4 mi long, easy",
+   "week": 13,
+   "weekday": 6,
+   "phase": 1
+  },
+  {
+   "kind": "easy",
+   "miles": 2.0,
+   "title": "2 mi easy",
+   "week": 14,
+   "weekday": 1,
+   "phase": 1
+  },
+  {
+   "kind": "road",
+   "preset": "3 × 5 min threshold",
+   "title": "3 × 5 min threshold",
+   "note": "3×5 min @ T (2 min jog)",
+   "week": 14,
+   "weekday": 2,
+   "phase": 1
+  },
+  {
+   "kind": "easy",
+   "miles": 2.0,
+   "title": "2 mi easy",
+   "note": "+ 4–6 strides",
+   "week": 14,
+   "weekday": 4,
+   "phase": 1
+  },
+  {
+   "kind": "easy",
+   "miles": 3.0,
+   "title": "3 mi easy",
+   "note": "8 hill sprints",
+   "week": 14,
+   "weekday": 5,
+   "phase": 1
+  },
+  {
+   "kind": "long",
+   "miles": 5.0,
+   "title": "5 mi long, easy",
+   "week": 14,
+   "weekday": 6,
+   "phase": 1
+  },
+  {
+   "kind": "easy",
+   "miles": 2.5,
+   "title": "2.5 mi easy",
+   "week": 15,
+   "weekday": 1,
+   "phase": 1
+  },
+  {
+   "kind": "road",
+   "preset": "4 × 5 min threshold",
+   "title": "4 × 5 min threshold",
+   "note": "4×5 min @ T (2 min jog)",
+   "week": 15,
+   "weekday": 2,
+   "phase": 1
+  },
+  {
+   "kind": "easy",
+   "miles": 2.5,
+   "title": "2.5 mi easy",
+   "note": "+ 4–6 strides",
+   "week": 15,
+   "weekday": 4,
+   "phase": 1
+  },
+  {
+   "kind": "track",
+   "preset": "6x200-r",
+   "title": "6×200 @ R",
+   "note": "6×200 @ R (200 jog)",
+   "week": 15,
+   "weekday": 5,
+   "phase": 1
+  },
+  {
+   "kind": "long",
+   "miles": 5.0,
+   "title": "5 mi long, easy",
+   "week": 15,
+   "weekday": 6,
+   "phase": 1
+  },
+  {
+   "kind": "easy",
+   "miles": 3.0,
+   "title": "3 mi easy",
+   "week": 16,
+   "weekday": 1,
+   "phase": 1
+  },
+  {
+   "kind": "easy",
+   "miles": 3.0,
+   "title": "3 mi easy",
+   "note": "with 4 × 200 @ R",
+   "week": 16,
+   "weekday": 2,
+   "phase": 1
+  },
+  {
+   "kind": "easy",
+   "miles": 2.5,
+   "title": "2.5 mi easy",
+   "note": "+ 4 strides",
+   "week": 16,
+   "weekday": 4,
+   "phase": 1
+  },
+  {
+   "kind": "easy",
+   "miles": 2.0,
+   "title": "2 mi easy",
+   "note": "easy + 4 strides, keep it short",
+   "week": 16,
+   "weekday": 5,
+   "phase": 1
+  },
+  {
+   "kind": "timeTrial",
+   "preset": "mile-tt",
+   "title": "mile time trial #1",
+   "note": "target ≤ 6:35",
+   "week": 16,
+   "weekday": 6,
+   "phase": 1
+  },
+  {
+   "kind": "easy",
+   "miles": 2.5,
+   "title": "2.5 mi easy",
+   "week": 17,
+   "weekday": 1,
+   "phase": 2
+  },
+  {
+   "kind": "road",
+   "preset": "4 × 6 min threshold",
+   "title": "4 × 6 min threshold",
+   "note": "4×6 min @ T (2 min jog)",
+   "week": 17,
+   "weekday": 2,
+   "phase": 2
+  },
+  {
+   "kind": "easy",
+   "miles": 2.5,
+   "title": "2.5 mi easy",
+   "note": "+ 4–6 strides",
+   "week": 17,
+   "weekday": 4,
+   "phase": 2
+  },
+  {
+   "kind": "track",
+   "preset": "6x200-r",
+   "title": "6×200 @ R",
+   "note": "6×200 @ R (200 jog)",
+   "week": 17,
+   "weekday": 5,
+   "phase": 2
+  },
+  {
+   "kind": "long",
+   "miles": 5.0,
+   "title": "5 mi long, easy",
+   "week": 17,
+   "weekday": 6,
+   "phase": 2
+  },
+  {
+   "kind": "easy",
+   "miles": 2.5,
+   "title": "2.5 mi easy",
+   "week": 18,
+   "weekday": 1,
+   "phase": 2
+  },
+  {
+   "kind": "track",
+   "preset": "5x800-i",
+   "title": "5×800 @ I",
+   "note": "5×800 @ I (2 min jog)",
+   "week": 18,
+   "weekday": 2,
+   "phase": 2
+  },
+  {
+   "kind": "easy",
+   "miles": 2.5,
+   "title": "2.5 mi easy",
+   "note": "+ 4–6 strides",
+   "week": 18,
+   "weekday": 4,
+   "phase": 2
+  },
+  {
+   "kind": "road",
+   "preset": "3 × 8 min threshold",
+   "title": "3 × 8 min threshold",
+   "note": "3×8 min @ T (2 min jog)",
+   "week": 18,
+   "weekday": 5,
+   "phase": 2
+  },
+  {
+   "kind": "long",
+   "miles": 6.0,
+   "title": "6 mi long, easy",
+   "week": 18,
+   "weekday": 6,
+   "phase": 2
+  },
+  {
+   "kind": "easy",
+   "miles": 3.5,
+   "title": "3.5 mi easy",
+   "week": 19,
+   "weekday": 1,
+   "phase": 2
+  },
+  {
+   "kind": "track",
+   "preset": "5x1000-i",
+   "title": "5×1000 @ I",
+   "note": "5×1000 @ I (2–3 min jog)",
+   "week": 19,
+   "weekday": 2,
+   "phase": 2
+  },
+  {
+   "kind": "easy",
+   "miles": 3.5,
+   "title": "3.5 mi easy",
+   "note": "+ 4–6 strides",
+   "week": 19,
+   "weekday": 4,
+   "phase": 2
+  },
+  {
+   "kind": "track",
+   "preset": "8x200-r",
+   "title": "8×200 @ R",
+   "note": "8×200 @ R (200 jog)",
+   "week": 19,
+   "weekday": 5,
+   "phase": 2
+  },
+  {
+   "kind": "long",
+   "miles": 6.0,
+   "title": "6 mi long, easy",
+   "week": 19,
+   "weekday": 6,
+   "phase": 2
+  },
+  {
+   "kind": "easy",
+   "miles": 2.0,
+   "title": "2 mi easy",
+   "week": 20,
+   "weekday": 1,
+   "phase": 2
+  },
+  {
+   "kind": "road",
+   "preset": "3 × 1 mi threshold",
+   "title": "3 × 1 mi threshold",
+   "note": "3×1 mi @ T (1 min jog)",
+   "week": 20,
+   "weekday": 2,
+   "phase": 2
+  },
+  {
+   "kind": "easy",
+   "miles": 2.0,
+   "title": "2 mi easy",
+   "note": "+ 4–6 strides",
+   "week": 20,
+   "weekday": 4,
+   "phase": 2
+  },
+  {
+   "kind": "track",
+   "preset": "6x200-r",
+   "title": "6×200 @ R",
+   "note": "6×200 @ R",
+   "week": 20,
+   "weekday": 5,
+   "phase": 2
+  },
+  {
+   "kind": "long",
+   "miles": 5.0,
+   "title": "5 mi long, easy",
+   "week": 20,
+   "weekday": 6,
+   "phase": 2
+  },
+  {
+   "kind": "easy",
+   "miles": 3.5,
+   "title": "3.5 mi easy",
+   "week": 21,
+   "weekday": 1,
+   "phase": 2
+  },
+  {
+   "kind": "track",
+   "preset": "6x800-i",
+   "title": "6×800 @ I",
+   "note": "6×800 @ I (2 min jog)",
+   "week": 21,
+   "weekday": 2,
+   "phase": 2
+  },
+  {
+   "kind": "easy",
+   "miles": 3.5,
+   "title": "3.5 mi easy",
+   "note": "+ 4–6 strides",
+   "week": 21,
+   "weekday": 4,
+   "phase": 2
+  },
+  {
+   "kind": "road",
+   "preset": "20 min tempo",
+   "title": "20 min tempo",
+   "note": "20 min tempo @ T",
+   "week": 21,
+   "weekday": 5,
+   "phase": 2
+  },
+  {
+   "kind": "long",
+   "miles": 7.0,
+   "title": "7 mi long, easy",
+   "week": 21,
+   "weekday": 6,
+   "phase": 2
+  },
+  {
+   "kind": "easy",
+   "miles": 4.0,
+   "title": "4 mi easy",
+   "week": 22,
+   "weekday": 1,
+   "phase": 2
+  },
+  {
+   "kind": "track",
+   "preset": "5x1000-i",
+   "title": "5×1000 @ I",
+   "note": "5×1000 @ I",
+   "week": 22,
+   "weekday": 2,
+   "phase": 2
+  },
+  {
+   "kind": "easy",
+   "miles": 4.0,
+   "title": "4 mi easy",
+   "note": "+ 4–6 strides",
+   "week": 22,
+   "weekday": 4,
+   "phase": 2
+  },
+  {
+   "kind": "track",
+   "preset": "6x400-r",
+   "title": "6×400 @ R",
+   "note": "6×400 @ R (400 jog)",
+   "week": 22,
+   "weekday": 5,
+   "phase": 2
+  },
+  {
+   "kind": "long",
+   "miles": 7.0,
+   "title": "7 mi long, easy",
+   "week": 22,
+   "weekday": 6,
+   "phase": 2
+  },
+  {
+   "kind": "easy",
+   "miles": 4.5,
+   "title": "4.5 mi easy",
+   "week": 23,
+   "weekday": 1,
+   "phase": 2
+  },
+  {
+   "kind": "track",
+   "preset": "4x1200-i",
+   "title": "4×1200 @ I",
+   "note": "4×1200 @ I (3 min jog)",
+   "week": 23,
+   "weekday": 2,
+   "phase": 2
+  },
+  {
+   "kind": "easy",
+   "miles": 4.5,
+   "title": "4.5 mi easy",
+   "note": "+ 4–6 strides",
+   "week": 23,
+   "weekday": 4,
+   "phase": 2
+  },
+  {
+   "kind": "road",
+   "preset": "3 × 1.5 mi threshold",
+   "title": "3 × 1.5 mi threshold",
+   "note": "3×1.5 mi @ T (2 min jog)",
+   "week": 23,
+   "weekday": 5,
+   "phase": 2
+  },
+  {
+   "kind": "long",
+   "miles": 7.0,
+   "title": "7 mi long, easy",
+   "week": 23,
+   "weekday": 6,
+   "phase": 2
+  },
+  {
+   "kind": "easy",
+   "miles": 2.5,
+   "title": "2.5 mi easy",
+   "week": 24,
+   "weekday": 1,
+   "phase": 2
+  },
+  {
+   "kind": "track",
+   "preset": "5x800-i",
+   "title": "5×800 @ I",
+   "note": "5×800 @ I",
+   "week": 24,
+   "weekday": 2,
+   "phase": 2
+  },
+  {
+   "kind": "easy",
+   "miles": 2.5,
+   "title": "2.5 mi easy",
+   "note": "+ 4–6 strides",
+   "week": 24,
+   "weekday": 4,
+   "phase": 2
+  },
+  {
+   "kind": "track",
+   "preset": "6x200-r",
+   "title": "6×200 @ R",
+   "note": "6×200 @ R",
+   "week": 24,
+   "weekday": 5,
+   "phase": 2
+  },
+  {
+   "kind": "long",
+   "miles": 6.0,
+   "title": "6 mi long, easy",
+   "week": 24,
+   "weekday": 6,
+   "phase": 2
+  },
+  {
+   "kind": "easy",
+   "miles": 4.5,
+   "title": "4.5 mi easy",
+   "week": 25,
+   "weekday": 1,
+   "phase": 2
+  },
+  {
+   "kind": "track",
+   "preset": "6x1000-i",
+   "title": "6×1000 @ I",
+   "note": "6×1000 @ I",
+   "week": 25,
+   "weekday": 2,
+   "phase": 2
+  },
+  {
+   "kind": "easy",
+   "miles": 4.5,
+   "title": "4.5 mi easy",
+   "note": "+ 4–6 strides",
+   "week": 25,
+   "weekday": 4,
+   "phase": 2
+  },
+  {
+   "kind": "track",
+   "preset": "8x400-r",
+   "title": "8×400 @ R",
+   "note": "8×400 @ R (400 jog)",
+   "week": 25,
+   "weekday": 5,
+   "phase": 2
+  },
+  {
+   "kind": "long",
+   "miles": 8.0,
+   "title": "8 mi long, easy",
+   "week": 25,
+   "weekday": 6,
+   "phase": 2
+  },
+  {
+   "kind": "easy",
+   "miles": 5.0,
+   "title": "5 mi easy",
+   "week": 26,
+   "weekday": 1,
+   "phase": 2
+  },
+  {
+   "kind": "track",
+   "preset": "5x1200-i",
+   "title": "5×1200 @ I",
+   "note": "5×1200 @ I (3 min jog)",
+   "week": 26,
+   "weekday": 2,
+   "phase": 2
+  },
+  {
+   "kind": "easy",
+   "miles": 5.0,
+   "title": "5 mi easy",
+   "note": "+ 4–6 strides",
+   "week": 26,
+   "weekday": 4,
+   "phase": 2
+  },
+  {
+   "kind": "road",
+   "preset": "2 × 15 min threshold",
+   "title": "2 × 15 min threshold",
+   "note": "2×15 min @ T (3 min jog)",
+   "week": 26,
+   "weekday": 5,
+   "phase": 2
+  },
+  {
+   "kind": "long",
+   "miles": 8.0,
+   "title": "8 mi long, easy",
+   "week": 26,
+   "weekday": 6,
+   "phase": 2
+  },
+  {
+   "kind": "easy",
+   "miles": 5.5,
+   "title": "5.5 mi easy",
+   "week": 27,
+   "weekday": 1,
+   "phase": 2
+  },
+  {
+   "kind": "track",
+   "preset": "6x800-i",
+   "title": "6×800 @ I",
+   "note": "6×800 @ I",
+   "week": 27,
+   "weekday": 2,
+   "phase": 2
+  },
+  {
+   "kind": "easy",
+   "miles": 5.5,
+   "title": "5.5 mi easy",
+   "note": "+ 4–6 strides",
+   "week": 27,
+   "weekday": 4,
+   "phase": 2
+  },
+  {
+   "kind": "track",
+   "preset": "10x200-r",
+   "title": "10×200 @ R",
+   "note": "10×200 @ R (200 jog)",
+   "week": 27,
+   "weekday": 5,
+   "phase": 2
+  },
+  {
+   "kind": "long",
+   "miles": 8.0,
+   "title": "8 mi long, easy",
+   "week": 27,
+   "weekday": 6,
+   "phase": 2
+  },
+  {
+   "kind": "easy",
+   "miles": 3.5,
+   "title": "3.5 mi easy",
+   "week": 28,
+   "weekday": 1,
+   "phase": 2
+  },
+  {
+   "kind": "road",
+   "preset": "3 × 1 mi threshold",
+   "title": "3 × 1 mi threshold",
+   "note": "3×1 mi @ T",
+   "week": 28,
+   "weekday": 2,
+   "phase": 2
+  },
+  {
+   "kind": "easy",
+   "miles": 3.5,
+   "title": "3.5 mi easy",
+   "note": "+ 4–6 strides",
+   "week": 28,
+   "weekday": 4,
+   "phase": 2
+  },
+  {
+   "kind": "track",
+   "preset": "6x200-r",
+   "title": "6×200 @ R",
+   "note": "6×200 @ R",
+   "week": 28,
+   "weekday": 5,
+   "phase": 2
+  },
+  {
+   "kind": "long",
+   "miles": 6.0,
+   "title": "6 mi long, easy",
+   "week": 28,
+   "weekday": 6,
+   "phase": 2
+  },
+  {
+   "kind": "easy",
+   "miles": 5.5,
+   "title": "5.5 mi easy",
+   "week": 29,
+   "weekday": 1,
+   "phase": 2
+  },
+  {
+   "kind": "track",
+   "preset": "6x1000-i",
+   "title": "6×1000 @ I",
+   "note": "6×1000 @ I",
+   "week": 29,
+   "weekday": 2,
+   "phase": 2
+  },
+  {
+   "kind": "easy",
+   "miles": 5.5,
+   "title": "5.5 mi easy",
+   "note": "+ 4–6 strides",
+   "week": 29,
+   "weekday": 4,
+   "phase": 2
+  },
+  {
+   "kind": "road",
+   "preset": "4 × 6 min threshold",
+   "title": "4 × 6 min threshold",
+   "note": "4×6 min @ T + 4 strides",
+   "week": 29,
+   "weekday": 5,
+   "phase": 2
+  },
+  {
+   "kind": "long",
+   "miles": 8.0,
+   "title": "8 mi long, easy",
+   "week": 29,
+   "weekday": 6,
+   "phase": 2
+  },
+  {
+   "kind": "easy",
+   "miles": 3.0,
+   "title": "3 mi easy",
+   "week": 30,
+   "weekday": 1,
+   "phase": 2
+  },
+  {
+   "kind": "easy",
+   "miles": 3.0,
+   "title": "3 mi easy",
+   "note": "with 4 × 200 @ R",
+   "week": 30,
+   "weekday": 2,
+   "phase": 2
+  },
+  {
+   "kind": "easy",
+   "miles": 2.5,
+   "title": "2.5 mi easy",
+   "note": "+ 4 strides",
+   "week": 30,
+   "weekday": 4,
+   "phase": 2
+  },
+  {
+   "kind": "easy",
+   "miles": 2.0,
+   "title": "2 mi easy",
+   "note": "easy + 4 strides, keep it short",
+   "week": 30,
+   "weekday": 5,
+   "phase": 2
+  },
+  {
+   "kind": "timeTrial",
+   "preset": "mile-tt",
+   "title": "mile time trial #2",
+   "note": "target ≤ 6:05",
+   "week": 30,
+   "weekday": 6,
+   "phase": 2
+  },
+  {
+   "kind": "easy",
+   "miles": 4.5,
+   "title": "4.5 mi easy",
+   "week": 31,
+   "weekday": 1,
+   "phase": 3
+  },
+  {
+   "kind": "track",
+   "preset": "6x400-r",
+   "title": "6×400 @ R",
+   "note": "6×400 @ R (400 jog)",
+   "week": 31,
+   "weekday": 2,
+   "phase": 3
+  },
+  {
+   "kind": "easy",
+   "miles": 4.5,
+   "title": "4.5 mi easy",
+   "note": "+ 4–6 strides",
+   "week": 31,
+   "weekday": 4,
+   "phase": 3
+  },
+  {
+   "kind": "road",
+   "preset": "20 min tempo",
+   "title": "20 min tempo",
+   "note": "20 min @ T + 4×200 fast",
+   "week": 31,
+   "weekday": 5,
+   "phase": 3
+  },
+  {
+   "kind": "long",
+   "miles": 8.0,
+   "title": "8 mi long, easy",
+   "week": 31,
+   "weekday": 6,
+   "phase": 3
+  },
+  {
+   "kind": "easy",
+   "miles": 5.0,
+   "title": "5 mi easy",
+   "week": 32,
+   "weekday": 1,
+   "phase": 3
+  },
+  {
+   "kind": "track",
+   "preset": "5x1000-i",
+   "title": "5×1000 @ I",
+   "note": "5×1000 @ I",
+   "week": 32,
+   "weekday": 2,
+   "phase": 3
+  },
+  {
+   "kind": "easy",
+   "miles": 5.0,
+   "title": "5 mi easy",
+   "note": "+ 4–6 strides",
+   "week": 32,
+   "weekday": 4,
+   "phase": 3
+  },
+  {
+   "kind": "track",
+   "preset": "10x200-goal",
+   "title": "10×200 @ goal pace, 41s",
+   "note": "10×200 @ goal pace, 41s (200 jog)",
+   "week": 32,
+   "weekday": 5,
+   "phase": 3
+  },
+  {
+   "kind": "long",
+   "miles": 8.0,
+   "title": "8 mi long, easy",
+   "week": 32,
+   "weekday": 6,
+   "phase": 3
+  },
+  {
+   "kind": "easy",
+   "miles": 5.5,
+   "title": "5.5 mi easy",
+   "week": 33,
+   "weekday": 1,
+   "phase": 3
+  },
+  {
+   "kind": "track",
+   "preset": "8x400-r",
+   "title": "8×400 @ R",
+   "note": "8×400 @ R (300 jog)",
+   "week": 33,
+   "weekday": 2,
+   "phase": 3
+  },
+  {
+   "kind": "easy",
+   "miles": 5.5,
+   "title": "5.5 mi easy",
+   "note": "+ 4–6 strides",
+   "week": 33,
+   "weekday": 4,
+   "phase": 3
+  },
+  {
+   "kind": "road",
+   "preset": "2 × 12 min threshold",
+   "title": "2 × 12 min threshold",
+   "note": "2×12 min @ T (2 min jog)",
+   "week": 33,
+   "weekday": 5,
+   "phase": 3
+  },
+  {
+   "kind": "long",
+   "miles": 8.0,
+   "title": "8 mi long, easy",
+   "week": 33,
+   "weekday": 6,
+   "phase": 3
+  },
+  {
+   "kind": "easy",
+   "miles": 3.5,
+   "title": "3.5 mi easy",
+   "week": 34,
+   "weekday": 1,
+   "phase": 3
+  },
+  {
+   "kind": "track",
+   "preset": "3s-3x300-r",
+   "title": "3 sets of 3×300 @ R",
+   "note": "3 sets of 3×300 @ R (100 walk; 4 min between sets)",
+   "week": 34,
+   "weekday": 2,
+   "phase": 3
+  },
+  {
+   "kind": "easy",
+   "miles": 3.5,
+   "title": "3.5 mi easy",
+   "note": "+ 4–6 strides",
+   "week": 34,
+   "weekday": 4,
+   "phase": 3
+  },
+  {
+   "kind": "road",
+   "preset": "15 min tempo",
+   "title": "15 min tempo",
+   "note": "15 min tempo @ T",
+   "week": 34,
+   "weekday": 5,
+   "phase": 3
+  },
+  {
+   "kind": "long",
+   "miles": 6.0,
+   "title": "6 mi long, easy",
+   "week": 34,
+   "weekday": 6,
+   "phase": 3
+  },
+  {
+   "kind": "easy",
+   "miles": 5.5,
+   "title": "5.5 mi easy",
+   "week": 35,
+   "weekday": 1,
+   "phase": 3
+  },
+  {
+   "kind": "track",
+   "preset": "5x1000-i",
+   "title": "5×1000 @ I",
+   "note": "5×1000 @ I",
+   "week": 35,
+   "weekday": 2,
+   "phase": 3
+  },
+  {
+   "kind": "easy",
+   "miles": 5.5,
+   "title": "5.5 mi easy",
+   "note": "+ 4–6 strides",
+   "week": 35,
+   "weekday": 4,
+   "phase": 3
+  },
+  {
+   "kind": "track",
+   "preset": "4s-2x400-84",
+   "title": "4 sets of 2×400 @ 85s",
+   "note": "4 sets of 2×400 @ 85s (60s rest; 4 min between sets)",
+   "week": 35,
+   "weekday": 5,
+   "phase": 3
+  },
+  {
+   "kind": "long",
+   "miles": 8.0,
+   "title": "8 mi long, easy",
+   "week": 35,
+   "weekday": 6,
+   "phase": 3
+  },
+  {
+   "kind": "easy",
+   "miles": 6.0,
+   "title": "6 mi easy",
+   "week": 36,
+   "weekday": 1,
+   "phase": 3
+  },
+  {
+   "kind": "track",
+   "preset": "6x400-r",
+   "title": "6×400 @ R",
+   "note": "6×400 @ R (400 jog)",
+   "week": 36,
+   "weekday": 2,
+   "phase": 3
+  },
+  {
+   "kind": "easy",
+   "miles": 6.0,
+   "title": "6 mi easy",
+   "note": "+ 4–6 strides",
+   "week": 36,
+   "weekday": 4,
+   "phase": 3
+  },
+  {
+   "kind": "road",
+   "preset": "3 × 1.5 mi threshold",
+   "title": "3 × 1.5 mi threshold",
+   "note": "3×1.5 mi @ T",
+   "week": 36,
+   "weekday": 5,
+   "phase": 3
+  },
+  {
+   "kind": "long",
+   "miles": 8.0,
+   "title": "8 mi long, easy",
+   "week": 36,
+   "weekday": 6,
+   "phase": 3
+  },
+  {
+   "kind": "easy",
+   "miles": 6.0,
+   "title": "6 mi easy",
+   "week": 37,
+   "weekday": 1,
+   "phase": 3
+  },
+  {
+   "kind": "track",
+   "preset": "12x200-goal",
+   "title": "12×200 @ goal pace, 41s",
+   "note": "12×200 @ goal pace, 41s",
+   "week": 37,
+   "weekday": 2,
+   "phase": 3
+  },
+  {
+   "kind": "easy",
+   "miles": 6.0,
+   "title": "6 mi easy",
+   "note": "+ 4–6 strides",
+   "week": 37,
+   "weekday": 4,
+   "phase": 3
+  },
+  {
+   "kind": "track",
+   "preset": "5x1000-i",
+   "title": "5×1000 @ I",
+   "note": "5×1000 @ I",
+   "week": 37,
+   "weekday": 5,
+   "phase": 3
+  },
+  {
+   "kind": "long",
+   "miles": 8.0,
+   "title": "8 mi long, easy",
+   "week": 37,
+   "weekday": 6,
+   "phase": 3
+  },
+  {
+   "kind": "easy",
+   "miles": 4.0,
+   "title": "4 mi easy",
+   "week": 38,
+   "weekday": 1,
+   "phase": 3
+  },
+  {
+   "kind": "road",
+   "preset": "3 × 1 mi threshold",
+   "title": "3 × 1 mi threshold",
+   "note": "3×1 mi @ T",
+   "week": 38,
+   "weekday": 2,
+   "phase": 3
+  },
+  {
+   "kind": "easy",
+   "miles": 4.0,
+   "title": "4 mi easy",
+   "note": "+ 4–6 strides",
+   "week": 38,
+   "weekday": 4,
+   "phase": 3
+  },
+  {
+   "kind": "track",
+   "preset": "6x200-r",
+   "title": "6×200 @ R",
+   "note": "6×200 @ R",
+   "week": 38,
+   "weekday": 5,
+   "phase": 3
+  },
+  {
+   "kind": "long",
+   "miles": 6.0,
+   "title": "6 mi long, easy",
+   "week": 38,
+   "weekday": 6,
+   "phase": 3
+  },
+  {
+   "kind": "easy",
+   "miles": 6.0,
+   "title": "6 mi easy",
+   "week": 39,
+   "weekday": 1,
+   "phase": 3
+  },
+  {
+   "kind": "track",
+   "preset": "4s-2x400-84",
+   "title": "4 sets of 2×400 @ 84s",
+   "note": "4 sets of 2×400 @ 84s (60s rest; 4 min between sets)",
+   "week": 39,
+   "weekday": 2,
+   "phase": 3
+  },
+  {
+   "kind": "easy",
+   "miles": 6.0,
+   "title": "6 mi easy",
+   "note": "+ 4–6 strides",
+   "week": 39,
+   "weekday": 4,
+   "phase": 3
+  },
+  {
+   "kind": "road",
+   "preset": "2 × 12 min threshold",
+   "title": "2 × 12 min threshold",
+   "note": "2×12 min @ T + 4 strides",
+   "week": 39,
+   "weekday": 5,
+   "phase": 3
+  },
+  {
+   "kind": "long",
+   "miles": 8.0,
+   "title": "8 mi long, easy",
+   "week": 39,
+   "weekday": 6,
+   "phase": 3
+  },
+  {
+   "kind": "easy",
+   "miles": 6.0,
+   "title": "6 mi easy",
+   "week": 40,
+   "weekday": 1,
+   "phase": 3
+  },
+  {
+   "kind": "track",
+   "preset": "2s-4x400-83",
+   "title": "2 sets of 4×400 @ 83s",
+   "note": "2 sets of 4×400 @ 83s (60s rest; 5 min between sets)",
+   "week": 40,
+   "weekday": 2,
+   "phase": 3
+  },
+  {
+   "kind": "easy",
+   "miles": 6.0,
+   "title": "6 mi easy",
+   "note": "+ 4–6 strides",
+   "week": 40,
+   "weekday": 4,
+   "phase": 3
+  },
+  {
+   "kind": "track",
+   "preset": "3x800-i",
+   "title": "3×800 @ I + 4×200 @ 39–40s",
+   "note": "3×800 @ I + 4×200 @ 39–40s",
+   "week": 40,
+   "weekday": 5,
+   "phase": 3
+  },
+  {
+   "kind": "long",
+   "miles": 8.0,
+   "title": "8 mi long, easy",
+   "week": 40,
+   "weekday": 6,
+   "phase": 3
+  },
+  {
+   "kind": "easy",
+   "miles": 5.5,
+   "title": "5.5 mi easy",
+   "week": 41,
+   "weekday": 1,
+   "phase": 3
+  },
+  {
+   "kind": "track",
+   "preset": "3x600-125",
+   "title": "3×600 @ 2:05",
+   "note": "3×600 @ 2:05 (5 min rest) + 4×200 @ 39s",
+   "week": 41,
+   "weekday": 2,
+   "phase": 3
+  },
+  {
+   "kind": "easy",
+   "miles": 5.5,
+   "title": "5.5 mi easy",
+   "note": "+ 4–6 strides",
+   "week": 41,
+   "weekday": 4,
+   "phase": 3
+  },
+  {
+   "kind": "road",
+   "preset": "2 × 10 min threshold",
+   "title": "2 × 10 min threshold",
+   "note": "2×10 min @ T",
+   "week": 41,
+   "weekday": 5,
+   "phase": 3
+  },
+  {
+   "kind": "long",
+   "miles": 7.0,
+   "title": "7 mi long, easy",
+   "week": 41,
+   "weekday": 6,
+   "phase": 3
+  },
+  {
+   "kind": "easy",
+   "miles": 3.5,
+   "title": "3.5 mi easy",
+   "week": 42,
+   "weekday": 1,
+   "phase": 3
+  },
+  {
+   "kind": "track",
+   "preset": "3s-3x300-r",
+   "title": "3 sets of 3×300 @ R",
+   "note": "3 sets of 3×300 @ R",
+   "week": 42,
+   "weekday": 2,
+   "phase": 3
+  },
+  {
+   "kind": "easy",
+   "miles": 3.5,
+   "title": "3.5 mi easy",
+   "note": "+ 4–6 strides",
+   "week": 42,
+   "weekday": 4,
+   "phase": 3
+  },
+  {
+   "kind": "road",
+   "preset": "15 min tempo",
+   "title": "15 min tempo",
+   "note": "15 min @ T",
+   "week": 42,
+   "weekday": 5,
+   "phase": 3
+  },
+  {
+   "kind": "long",
+   "miles": 6.0,
+   "title": "6 mi long, easy",
+   "week": 42,
+   "weekday": 6,
+   "phase": 3
+  },
+  {
+   "kind": "easy",
+   "miles": 5.5,
+   "title": "5.5 mi easy",
+   "week": 43,
+   "weekday": 1,
+   "phase": 3
+  },
+  {
+   "kind": "track",
+   "preset": "6x400-82",
+   "title": "6×400 @ 82–83s",
+   "note": "6×400 @ 82–83s (400 jog)",
+   "week": 43,
+   "weekday": 2,
+   "phase": 3
+  },
+  {
+   "kind": "easy",
+   "miles": 5.5,
+   "title": "5.5 mi easy",
+   "note": "+ 4–6 strides",
+   "week": 43,
+   "weekday": 4,
+   "phase": 3
+  },
+  {
+   "kind": "track",
+   "preset": "5x1000-i",
+   "title": "5×1000 @ I",
+   "note": "5×1000 @ I",
+   "week": 43,
+   "weekday": 5,
+   "phase": 3
+  },
+  {
+   "kind": "long",
+   "miles": 8.0,
+   "title": "8 mi long, easy",
+   "week": 43,
+   "weekday": 6,
+   "phase": 3
+  },
+  {
+   "kind": "easy",
+   "miles": 3.0,
+   "title": "3 mi easy",
+   "week": 44,
+   "weekday": 1,
+   "phase": 3
+  },
+  {
+   "kind": "easy",
+   "miles": 3.0,
+   "title": "3 mi easy",
+   "note": "with 4 × 200 @ R",
+   "week": 44,
+   "weekday": 2,
+   "phase": 3
+  },
+  {
+   "kind": "easy",
+   "miles": 2.5,
+   "title": "2.5 mi easy",
+   "note": "+ 4 strides",
+   "week": 44,
+   "weekday": 4,
+   "phase": 3
+  },
+  {
+   "kind": "easy",
+   "miles": 2.0,
+   "title": "2 mi easy",
+   "note": "easy + 4 strides, keep it short",
+   "week": 44,
+   "weekday": 5,
+   "phase": 3
+  },
+  {
+   "kind": "timeTrial",
+   "preset": "mile-tt",
+   "title": "mile time trial #3",
+   "note": "target ≤ 5:45",
+   "week": 44,
+   "weekday": 6,
+   "phase": 3
+  },
+  {
+   "kind": "easy",
+   "miles": 4.5,
+   "title": "4.5 mi easy",
+   "week": 45,
+   "weekday": 1,
+   "phase": 4
+  },
+  {
+   "kind": "track",
+   "preset": "1x1200-412",
+   "title": "1200 @ 4:12",
+   "note": "1200 @ 4:12 (84s/400), 5 min rest, 4×200 @ 38–39s",
+   "week": 45,
+   "weekday": 2,
+   "phase": 4
+  },
+  {
+   "kind": "easy",
+   "miles": 4.5,
+   "title": "4.5 mi easy",
+   "note": "+ 4–6 strides",
+   "week": 45,
+   "weekday": 4,
+   "phase": 4
+  },
+  {
+   "kind": "road",
+   "preset": "2 × 10 min threshold",
+   "title": "2 × 10 min threshold",
+   "note": "2×10 min @ T",
+   "week": 45,
+   "weekday": 5,
+   "phase": 4
+  },
+  {
+   "kind": "long",
+   "miles": 7.0,
+   "title": "7 mi long, easy",
+   "week": 45,
+   "weekday": 6,
+   "phase": 4
+  },
+  {
+   "kind": "easy",
+   "miles": 4.0,
+   "title": "4 mi easy",
+   "week": 46,
+   "weekday": 1,
+   "phase": 4
+  },
+  {
+   "kind": "track",
+   "preset": "4x400-82",
+   "title": "4×400 @ 81–82s",
+   "note": "4×400 @ 81–82s (3 min full rest)",
+   "week": 46,
+   "weekday": 2,
+   "phase": 4
+  },
+  {
+   "kind": "easy",
+   "miles": 4.0,
+   "title": "4 mi easy",
+   "note": "+ 4–6 strides",
+   "week": 46,
+   "weekday": 4,
+   "phase": 4
+  },
+  {
+   "kind": "track",
+   "preset": "4x1000-i",
+   "title": "4×1000 @ I",
+   "note": "4×1000 @ I",
+   "week": 46,
+   "weekday": 5,
+   "phase": 4
+  },
+  {
+   "kind": "long",
+   "miles": 6.0,
+   "title": "6 mi long, easy",
+   "week": 46,
+   "weekday": 6,
+   "phase": 4
+  },
+  {
+   "kind": "easy",
+   "miles": 2.5,
+   "title": "2.5 mi easy",
+   "week": 47,
+   "weekday": 1,
+   "phase": 4
+  },
+  {
+   "kind": "track",
+   "preset": "sharpener",
+   "title": "600 @ 2:02, 400 @ 80s, 2×200 @ 38s",
+   "note": "600 @ 2:02, 400 @ 80s, 2×200 @ 38s (full rest)",
+   "week": 47,
+   "weekday": 2,
+   "phase": 4
+  },
+  {
+   "kind": "easy",
+   "miles": 2.5,
+   "title": "2.5 mi easy",
+   "note": "+ 4–6 strides",
+   "week": 47,
+   "weekday": 4,
+   "phase": 4
+  },
+  {
+   "kind": "road",
+   "preset": "15 min tempo",
+   "title": "15 min tempo",
+   "note": "15 min @ T + strides",
+   "week": 47,
+   "weekday": 5,
+   "phase": 4
+  },
+  {
+   "kind": "long",
+   "miles": 5.0,
+   "title": "5 mi long, easy",
+   "week": 47,
+   "weekday": 6,
+   "phase": 4
+  },
+  {
+   "kind": "easy",
+   "miles": 3.0,
+   "title": "3 mi easy",
+   "note": "+ 4 strides",
+   "week": 48,
+   "weekday": 1,
+   "phase": 4
+  },
+  {
+   "kind": "track",
+   "preset": "3x400-goal",
+   "title": "3×400 @ goal pace + 3×200 relaxed-fast",
+   "note": "3×400 @ goal pace + 3×200 relaxed-fast",
+   "week": 48,
+   "weekday": 2,
+   "phase": 4
+  },
+  {
+   "kind": "easy",
+   "miles": 2.5,
+   "title": "2.5 mi easy",
+   "note": "+ strides",
+   "week": 48,
+   "weekday": 5,
+   "phase": 4
+  },
+  {
+   "kind": "race",
+   "preset": "mile-tt",
+   "title": "goal race: 5:30 mile",
+   "note": "race day",
+   "week": 48,
+   "weekday": 6,
+   "phase": 4
+  }
+ ]
+}

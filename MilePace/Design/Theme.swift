@@ -28,8 +28,11 @@ enum Theme {
     static let dim: Color = Theme.dynamic(dark: 0x7D7D7D, light: 0x666666)
     /// Electric blue. Fills only, never text on `bg`.
     static let signal: Color = Color(uiColor: Theme.rgb(0x0A3CFF))
-    /// Text on a `signal` fill.
+    /// Text on a `signal` or `plan` fill.
     static let onSignal: Color = Color(uiColor: Theme.rgb(0xFFFFFF))
+    /// "Plan" purple: scheduled, from the plan. Fills only, never text on `bg`. Blue keeps meaning
+    /// "on target right now".
+    static let plan: Color = Color(uiColor: Theme.rgb(0x8B1EFF))
 
     // MARK: Type
 

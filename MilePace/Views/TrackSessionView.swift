@@ -8,11 +8,14 @@ struct TrackSessionView: View {
 
     @Environment(\.modelContext) private var modelContext
 
+    @AppStorage(SettingsKey.mileTime) private var mileTime: Double = AppSettings.defaultMileTime
+
     @State private var workout: TrackWorkout
     @State private var now: Date = Date()
     @State private var lastCountdownSecond: Int = -1
     @State private var confirmEnd: Bool = false
     @State private var sessionStart: Date?
+    @State private var paceOffer: PaceOffer?
 
     private let ticker = Timer.publish(every: 0.1, on: .main, in: .common).autoconnect()
 
@@ -38,6 +41,12 @@ struct TrackSessionView: View {
         }
         .onDisappear {
             UIApplication.shared.isIdleTimerDisabled = false
+        }
+        .sheet(item: $paceOffer) { offer in
+            PaceUpdateSheet(offer: offer,
+                            currentSeconds: mileTime,
+                            onUpdate: { applyPaceOffer(offer) },
+                            onKeep: { keepPaces() })
         }
     }
 
@@ -322,6 +331,7 @@ struct TrackSessionView: View {
                     }
                     .padding(.top, Theme.s4)
                     BracketButton(title: "discard") {
+                        PlanStore.shared.discardActive()
                         onClose()
                     }
                     .padding(.top, Theme.s2)
@@ -339,6 +349,34 @@ struct TrackSessionView: View {
                                    repTimes: workout.repTimes,
                                    lapSplits: workout.lapSplits)
         modelContext.insert(record)
+        PlanStore.shared.completeActive()
+        if let offer = timeTrialOffer() {
+            paceOffer = offer
+        } else {
+            onClose()
+        }
+    }
+
+    /// A saved mile time trial can retune the training paces, when the time is a believable mile.
+    private func timeTrialOffer() -> PaceOffer? {
+        let spec = workout.spec
+        guard spec.repDistance == 1609, spec.totalReps == 1, let time = workout.repTimes.first else {
+            return nil
+        }
+        let seconds = time.rounded()
+        guard AppSettings.validMileRange.contains(seconds) else { return nil }
+        guard abs(seconds - mileTime.rounded()) >= 1 else { return nil }
+        return PaceOffer(seconds: seconds)
+    }
+
+    private func applyPaceOffer(_ offer: PaceOffer) {
+        mileTime = offer.seconds
+        paceOffer = nil
+        onClose()
+    }
+
+    private func keepPaces() {
+        paceOffer = nil
         onClose()
     }
 }

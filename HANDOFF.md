@@ -87,3 +87,37 @@ Most likely to need a compile fix: `Design/Controls+Instrument.swift` (`HoldBar`
 Field checks for v1.2: GPS status line goes `searching` to `4m` on the Run tab before starting; pace shows within a few
 seconds of running; "Slow down" / "Speed up" spoken; hold-to-end bar fills and ends the run; LAP block is easy to hit;
 light and dark display modes; diagnostics panel stays open mid-run and the CSV exports.
+
+## v1.3 (see `PLAN-v4.md`)
+Written on Linux with no Swift toolchain, so **none of it has been compiled**. Expect a few compile fixes on the first
+CI run. v1.2 behavior is unchanged except the app now opens on the new `today` tab.
+
+New files:
+- `Resources/plan.json` (generated, do not hand-edit): 48 weeks, 219 sessions, starts 2026-10-12.
+- `Models/TrainingPlan.swift`: pure logic (`PlanFile`, `SessionKind`, `PlanProgress`, `PlanSchedule`, `PlanRoute`,
+  `PlanCalendar`, `PlanLoader`, `PlanFormat`). `PlanCalendar` functions take an optional `calendar:` so tests can use a
+  DST time zone.
+- `Services/PlanStore.swift`: `@Observable @MainActor` singleton. Progress is JSON in `UserDefaults` (`planProgress`);
+  start date is a "yyyy-MM-dd" string (`planStartDate`). Statuses are keyed by session index as a string.
+- `Views/TodayView.swift`, `Views/PlanOverviewView.swift` (also `PlanWeekDetailView`), `Views/PaceUpdateSheet.swift`.
+- `Design/PlanComponents.swift`: `PlanBar`, `PlanTag`, `TextBracketButton`.
+- Tests: `TrainingPlanTests` (inline mini plan), `BundledPlanTests` (real `plan.json` via `Bundle(for: PlanStore.self)`).
+
+Changed: `Theme` (`plan` purple), `Controls+Instrument` (`BracketStyle.plan`, `.outlineOnInverted`, `AppTab.today`),
+`WorkoutPresets` (7 new presets, 24 total), `ContentView` (today tab, route to tab), `RunView` and `TrackSetupView`
+(plan bar, route handling, `isActive` on the track tab), `TrackSessionView` (completes the active session, mile time
+trial pace offer), `SettingsView` (plan section, v1.3), `project.yml` (version 1.3), `TrackWorkoutTests` (preset count
+17 to 24, the only edit to an existing test).
+
+How routing works: `PlanStore.start(index)` sets `activeSessionIndex` and `pendingRoute`. `ContentView` switches tabs on
+`pendingRoute`; `RunView` / `TrackSetupView` consume it only while their tab is active (so `ContentView` never misses it).
+
+Most likely to need a compile fix: `Views/TodayView.swift` (`outlined` generic ViewBuilder helper, `@ViewBuilder`
+functions with local `let`), `Services/PlanStore.swift` (`@Observable` init with stored properties),
+`Models/TrainingPlan.swift` (custom `SessionKind.init(from:)`), `Views/SettingsView.swift` (compact `DatePicker`),
+`Views/TrackSessionView.swift` (sheet over a full-screen cover).
+
+Field checks for v1.3: app opens on today; before Oct 12 it shows the countdown and week-1 list; a skipped day shows the
+missed card and "do it today" shifts the race date shown in the full plan; start on an easy day sets Run to the easy
+guard; start on a track day opens the right setup sheet; saving marks the day done (x in the strip); a mile time trial
+offers the new paces; Set, plan start date and reset work.

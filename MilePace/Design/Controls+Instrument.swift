@@ -18,6 +18,10 @@ enum BracketStyle {
     case signal
     /// Foreground fill, background text.
     case inverted
+    /// Plan purple fill, onSignal text, no border.
+    case plan
+    /// Transparent with a 2 pt background-colored border and text, for use on a foreground fill.
+    case outlineOnInverted
 }
 
 /// The look of a bracket button, shared by `BracketButton` and share links.
@@ -33,6 +37,8 @@ struct BracketLabel: View {
         case .plain: return Theme.fg
         case .signal: return Theme.onSignal
         case .inverted: return Theme.bg
+        case .plan: return Theme.onSignal
+        case .outlineOnInverted: return Theme.bg
         }
     }
 
@@ -41,6 +47,8 @@ struct BracketLabel: View {
         case .plain: return Theme.bg
         case .signal: return Theme.signal
         case .inverted: return Theme.fg
+        case .plan: return Theme.plan
+        case .outlineOnInverted: return Color.clear
         }
     }
 
@@ -60,11 +68,19 @@ struct BracketLabel: View {
             .overlay(border)
     }
 
+    private var borderColor: Color? {
+        switch style {
+        case .plain: return Theme.fg
+        case .outlineOnInverted: return Theme.bg
+        case .signal, .inverted, .plan: return nil
+        }
+    }
+
     @ViewBuilder
     private var border: some View {
-        if style == .plain {
+        if let color = borderColor {
             Rectangle()
-                .strokeBorder(Theme.fg, lineWidth: Theme.rule)
+                .strokeBorder(color, lineWidth: Theme.rule)
         }
     }
 }
@@ -159,6 +175,7 @@ struct HoldBar: View {
 // MARK: - Tab strip
 
 enum AppTab: String, CaseIterable, Identifiable {
+    case today
     case run
     case track
     case log
@@ -167,7 +184,7 @@ enum AppTab: String, CaseIterable, Identifiable {
     var id: String { rawValue }
 }
 
-/// Bottom bar: four equal text cells under a 2 pt rule; the selected cell is inverted.
+/// Bottom bar: five equal text cells under a 2 pt rule; the selected cell is inverted.
 struct TabStrip: View {
     @Binding var selection: AppTab
 
@@ -193,6 +210,8 @@ struct TabStrip: View {
         return Text(tab.rawValue)
             .font(Theme.mono(.body))
             .foregroundStyle(selected ? Theme.bg : Theme.fg)
+            .lineLimit(1)
+            .minimumScaleFactor(0.6)
             .frame(maxWidth: .infinity, minHeight: 56)
             .background(selected ? Theme.fg : Theme.bg)
     }

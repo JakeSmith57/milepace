@@ -9,18 +9,30 @@ struct SetupItem: Identifiable {
 /// Track tab: preset list, with a setup sheet that leads into the session.
 @MainActor
 struct TrackSetupView: View {
+    /// True while the Track tab is the selected tab. Plan routes are applied only then.
+    let isActive: Bool
+
     @AppStorage(SettingsKey.mileTime) private var mileTime: Double = AppSettings.defaultMileTime
     @AppStorage(SettingsKey.goalMile) private var goalMile: Double = AppSettings.defaultGoalMile
 
     @State private var editing: SetupItem?
 
+    init(isActive: Bool) {
+        self.isActive = isActive
+    }
+
     private var zones: PaceZones {
         return PaceZones.forMile(mileTime)
+    }
+
+    private var store: PlanStore {
+        return PlanStore.shared
     }
 
     var body: some View {
         VStack(spacing: 0) {
             StatusLine(left: "milepace", center: "track", right: "goal " + formatSplit(PaceZones.goalPer400) + "/400")
+            planBanner
             ScrollView {
                 VStack(alignment: .leading, spacing: 0) {
                     ForEach(PresetGroup.allCases) { group in
@@ -40,6 +52,60 @@ struct TrackSetupView: View {
         .sheet(item: $editing) { item in
             WorkoutEditorView(spec: item.spec)
         }
+        .onAppear {
+            applyPendingRoute()
+        }
+        .onChange(of: isActive) { _, _ in
+            applyPendingRoute()
+        }
+        .onChange(of: PlanStore.shared.pendingRoute) { _, _ in
+            applyPendingRoute()
+        }
+    }
+
+    // MARK: Plan
+
+    /// Today's unfinished track session from the plan, if any.
+    private var todayTrackIndex: Int? {
+        guard let schedule = store.schedule else { return nil }
+        return schedule.todays(today: store.todayOffset).first(where: { schedule.plan.sessions[$0].isTrackSession })
+    }
+
+    @ViewBuilder
+    private var planBanner: some View {
+        if let index = todayTrackIndex, let schedule = store.schedule {
+            PlanBar(text: "today: " + schedule.plan.sessions[index].title, actionTitle: "start") {
+                store.markActive(index)
+                openTrack(schedule.plan.sessions[index].preset)
+            }
+        }
+    }
+
+    /// Opens the setup sheet for a preset id, or the custom builder when there is no such preset.
+    private func openTrack(_ presetId: String?) {
+        if let id = presetId, let preset = WorkoutPresets.all.first(where: { $0.id == id }) {
+            editing = SetupItem(spec: preset.spec(zones: zones, goalMile: goalMile))
+        } else {
+            editing = SetupItem(spec: WorkoutPresets.customSpec(zones: zones))
+        }
+    }
+
+    private func applyPendingRoute() {
+        guard isActive, let route = store.pendingRoute else { return }
+        guard case .track(let presetId) = route else { return }
+        store.pendingRoute = nil
+        openTrack(presetId)
+    }
+
+    /// "today" or "tue oct 20" for a preset scheduled in the next 14 days.
+    private func planTag(for preset: WorkoutPreset) -> String? {
+        guard let schedule = store.schedule else { return nil }
+        let today = store.todayOffset
+        guard let day = schedule.nearestDay(forPreset: preset.id, today: today, within: 14) else { return nil }
+        if day == today {
+            return "today"
+        }
+        return PlanFormat.dayLabel(offset: day, start: store.startDate)
     }
 
     private func groupSection(_ group: PresetGroup) -> some View {
@@ -61,14 +127,25 @@ struct TrackSetupView: View {
                            value: formatSplit(spec.targetRepSeconds),
                            ruled: false,
                            leaders: false)
-                Text(summaryLine(for: spec))
-                    .font(Theme.mono(.micro))
-                    .foregroundStyle(Theme.dim)
-                    .padding(.bottom, Theme.s2)
+                HStack(spacing: Theme.s2) {
+                    Text(summaryLine(for: spec))
+                        .font(Theme.mono(.micro))
+                        .foregroundStyle(Theme.dim)
+                    Spacer(minLength: 0)
+                    planTagView(for: preset)
+                }
+                .padding(.bottom, Theme.s2)
                 DashedRule()
             }
         }
         .buttonStyle(InstrumentButtonStyle())
+    }
+
+    @ViewBuilder
+    private func planTagView(for preset: WorkoutPreset) -> some View {
+        if let tag = planTag(for: preset) {
+            PlanTag(text: tag)
+        }
     }
 
     private func summaryLine(for spec: WorkoutSpec) -> String {

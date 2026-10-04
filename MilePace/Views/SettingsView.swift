@@ -19,6 +19,8 @@ struct SettingsView: View {
     @State private var goalText: String = ""
     @State private var mileInvalid: Bool = false
     @State private var goalInvalid: Bool = false
+    @State private var confirmReset: Bool = false
+    @State private var planStart: Date = PlanStore.shared.startDate
 
     private var zones: PaceZones {
         return PaceZones.forMile(mileTime)
@@ -44,11 +46,12 @@ struct SettingsView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            StatusLine(left: "milepace", center: "set", right: "v1.2")
+            StatusLine(left: "milepace", center: "set", right: "v1.3")
             ScrollView {
                 VStack(alignment: .leading, spacing: 0) {
                     mileTimes
                     trainingZones
+                    planSection
                     voiceAndFeedback
                     trackOptions
                     metronome
@@ -63,6 +66,13 @@ struct SettingsView: View {
         .onAppear {
             mileText = formatDuration(mileTime)
             goalText = formatDuration(goalMile)
+            planStart = PlanStore.shared.startDate
+        }
+        .onChange(of: planStart) { _, newValue in
+            let day = PlanCalendar.local.startOfDay(for: newValue)
+            if day != PlanStore.shared.startDate {
+                PlanStore.shared.setStartDate(day)
+            }
         }
         .onChange(of: mileText) { _, newValue in
             if let value = parseTime(newValue), AppSettings.validMileRange.contains(value) {
@@ -71,6 +81,9 @@ struct SettingsView: View {
             } else {
                 mileInvalid = true
             }
+        }
+        .onChange(of: mileTime) { _, newValue in
+            syncMileText(newValue)
         }
         .onChange(of: goalText) { _, newValue in
             if let value = parseTime(newValue), AppSettings.validMileRange.contains(value) {
@@ -119,6 +132,62 @@ struct SettingsView: View {
                        value: formatSplit(zones.rep400.lowerBound) + "\u{2013}" + formatSplit(zones.rep400.upperBound),
                        keyWidth: 10)
             ReadoutRow(key: "goal", value: formatPace(secondsPerMile: goalMile) + " /mi", keyWidth: 10)
+        }
+    }
+
+    /// Keeps the text box in step when the mile time changes elsewhere, such as after a time trial.
+    private func syncMileText(_ value: Double) {
+        if let typed = parseTime(mileText), abs(typed - value) < 0.5 {
+            return
+        }
+        mileText = formatDuration(value)
+    }
+
+    private var planSection: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            SectionHeader("plan")
+            planStartRow
+            note("plan weeks start on this date. pick a monday.")
+            resetControls
+                .padding(.top, Theme.s3)
+        }
+    }
+
+    private var planStartRow: some View {
+        VStack(spacing: 0) {
+            HStack(spacing: Theme.s2) {
+                Text(ReadoutFormat.leader("start", width: 12))
+                    .font(Theme.mono(.body))
+                    .foregroundStyle(Theme.dim)
+                    .lineLimit(1)
+                    .fixedSize()
+                Spacer(minLength: 0)
+                DatePicker("plan start", selection: $planStart, displayedComponents: .date)
+                    .labelsHidden()
+                    .datePickerStyle(.compact)
+                    .tint(Theme.fg)
+            }
+            .padding(.vertical, Theme.s1)
+            DashedRule()
+        }
+    }
+
+    @ViewBuilder
+    private var resetControls: some View {
+        if confirmReset {
+            HStack(spacing: Theme.s2) {
+                BracketButton(title: "yes, reset", style: .inverted) {
+                    PlanStore.shared.resetProgress()
+                    confirmReset = false
+                }
+                BracketButton(title: "cancel") {
+                    confirmReset = false
+                }
+            }
+        } else {
+            BracketButton(title: "reset plan progress") {
+                confirmReset = true
+            }
         }
     }
 

@@ -1,11 +1,11 @@
 import SwiftUI
 import UIKit
 
-/// Four screens kept alive in a ZStack, with the instrument tab strip along the bottom.
+/// Five screens kept alive in a ZStack, with the instrument tab strip along the bottom.
 struct ContentView: View {
     @AppStorage(SettingsKey.displayMode) private var displayMode: DisplayMode = .system
 
-    @State private var selection: AppTab = .run
+    @State private var selection: AppTab = .today
     @State private var keyboardVisible: Bool = false
 
     var body: some View {
@@ -17,6 +17,11 @@ struct ContentView: View {
         }
         .instrumentScreen()
         .preferredColorScheme(displayMode.colorScheme)
+        .onChange(of: PlanStore.shared.pendingRoute) { _, route in
+            if let route = route {
+                selection = tab(for: route)
+            }
+        }
         .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillShowNotification)) { _ in
             keyboardVisible = true
         }
@@ -25,11 +30,22 @@ struct ContentView: View {
         }
     }
 
+    /// The tab that handles a route from the today screen. That screen applies the route itself
+    /// once its tab is showing.
+    private func tab(for route: PlanRoute) -> AppTab {
+        switch route {
+        case .freeRun, .roadWorkout: return .run
+        case .track: return .track
+        }
+    }
+
     private var screens: some View {
         ZStack {
+            TodayView()
+                .modifier(TabLayer(isSelected: selection == .today))
             RunView(isActive: selection == .run)
                 .modifier(TabLayer(isSelected: selection == .run))
-            TrackSetupView()
+            TrackSetupView(isActive: selection == .track)
                 .modifier(TabLayer(isSelected: selection == .track))
             HistoryView()
                 .modifier(TabLayer(isSelected: selection == .log))

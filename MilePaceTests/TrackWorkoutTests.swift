@@ -184,7 +184,7 @@ final class TrackWorkoutTests: XCTestCase {
         let sets = WorkoutPresets.all.first { $0.id == "4s-2x400-84" }?.spec(zones: zones, goalMile: 330)
         XCTAssertEqual(sets?.sets, 4)
         XCTAssertEqual(sets?.setRestSeconds, 240)
-        XCTAssertEqual(WorkoutPresets.all.count, 17)
+        XCTAssertEqual(WorkoutPresets.all.count, 24)
         for group in PresetGroup.allCases {
             XCTAssertFalse(WorkoutPresets.presets(in: group).isEmpty)
         }
