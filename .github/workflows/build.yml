@@ -2,8 +2,25 @@ name: Build and Test
 
 on:
   push:
+    paths-ignore:
+      - "**.md"
+      - "scripts/**"
+      - ".github/workflows/testflight.yml"
   pull_request:
+    paths-ignore:
+      - "**.md"
+      - "scripts/**"
+      - ".github/workflows/testflight.yml"
   workflow_dispatch:
+
+concurrency:
+  group: build-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  HOMEBREW_NO_AUTO_UPDATE: "1"
+  HOMEBREW_NO_INSTALL_CLEANUP: "1"
+  HOMEBREW_NO_ANALYTICS: "1"
 
 jobs:
   test:

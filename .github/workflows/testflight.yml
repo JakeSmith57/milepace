@@ -13,6 +13,9 @@ jobs:
       TEAM_ID: ${{ secrets.TEAM_ID }}
       BUNDLE_ID: ${{ secrets.BUNDLE_ID }}
       BUILD_NUMBER: ${{ github.run_number }}
+      HOMEBREW_NO_AUTO_UPDATE: "1"
+      HOMEBREW_NO_INSTALL_CLEANUP: "1"
+      HOMEBREW_NO_ANALYTICS: "1"
     steps:
       - name: Checkout
         uses: actions/checkout@v4
