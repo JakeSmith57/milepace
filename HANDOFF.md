@@ -49,3 +49,14 @@ an internal tester.
 - Track tab: target splits match the printed plan (6:52 mile → R 400 ≈ 102–104 s); LAP button is
   easy to hit mid-rep; rest countdown and GO work; results save.
 - History: weekly miles chart shows saved and manually added runs.
+
+## v1.1 (see `PLAN-v2.md`)
+New files, none of them compiled yet (no Swift toolchain on the authoring machine):
+- `Models/DistanceCues.swift`, `Models/RoadWorkout.swift`, `Models/RouteSegments.swift`, `Models/ClickTrack.swift`: pure logic.
+- `Services/CadenceTracker.swift` (CMPedometer), `Services/AudioSessionCoordinator.swift` (shared audio session
+  counts for speech and metronome), `Services/Metronome.swift` (AVAudioEngine click loop).
+- `Views/RunMapView.swift`: iOS 17 MapKit route map.
+- Tests: `DistanceCuesTests`, `RoadWorkoutTests`, `ClickTrackTests`, `RouteTests`, `ZoneGuardTests`.
+Changed: `LocationTracker`, `Coach`, `PaceCalculator` (route), `Settings`, `Records` (new defaulted SwiftData
+fields), `RunView`, `HistoryView`, `SettingsView`, `Info.plist` (motion usage text), `project.yml` (version 1.1).
+Most likely to need a compile fix: `Metronome.swift`, `CadenceTracker.swift`, `RunMapView.swift`, `RunView.swift`.

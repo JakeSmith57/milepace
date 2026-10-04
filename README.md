@@ -48,3 +48,6 @@ Before the first run:
 - GPS pace is noisy on a 400 m track because of the tight turns and short distances. Use Track mode on the track and tap a lap each time you cross the line.
 - In Track mode the rest timer does not start the next rep for you. When the rest ends you get a vibration and a voice cue; tap GO when you actually start running.
 - Tracking pace uses a 30 second window and needs about 25 m of movement before it shows a number, so the first few seconds read `--:--`.
+- Road workouts: pick Workout mode on the Run tab, warm up, then tap Start Reps. Reps, recoveries and cool-down are coached by voice, with pace verdicts against the rep target (threshold, interval or goal pace). Skip ends a rep or recovery early. Pace cues (quarter, half or full mile) are held back during reps and recoveries.
+- Metronome: the cadence click plays through the speaker or headphones, keeps going with the screen locked, and mixes with music and voice cues. Cadence comes from the phone's pedometer, so carry the phone on your body. After two minutes, "Set to my cadence +5%" sets the click a little above your average; raise cadence gradually.
+- Run maps: each saved run keeps its route and shows it on a map colored by pace against that run's average (green faster, orange steady, blue slower) with mile markers. Runs saved before v1.1 have no map.

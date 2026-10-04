@@ -222,8 +222,17 @@ struct AddMilesView: View {
 struct RunDetailView: View {
     @Bindable var run: RunRecord
 
+    @State private var route: [RoutePoint] = []
+
     var body: some View {
         Form {
+            if route.count >= 2 {
+                Section {
+                    RunMapView(route: route, averagePace: run.averagePace)
+                        .listRowInsets(EdgeInsets(top: 8, leading: 0, bottom: 8, trailing: 0))
+                        .listRowBackground(Color.clear)
+                }
+            }
             Section {
                 detailRow("Date", Text(run.date, style: .date))
                 detailRow("Distance", Text("\(formatMiles(run.distanceMeters)) mi"))
@@ -231,6 +240,9 @@ struct RunDetailView: View {
                     detailRow("Time", Text(formatDuration(run.durationSeconds)))
                 }
                 detailRow("Average pace", Text("\(formatPace(secondsPerMile: run.averagePace)) /mi"))
+                if run.averageCadence > 0 {
+                    detailRow("Average cadence", Text("\(Int(run.averageCadence.rounded())) spm"))
+                }
             }
             if !run.splits.isEmpty {
                 Section("Mile splits") {
@@ -246,6 +258,9 @@ struct RunDetailView: View {
         }
         .navigationTitle("Run")
         .navigationBarTitleDisplayMode(.inline)
+        .onAppear {
+            route = run.route
+        }
     }
 
     private func detailRow(_ title: String, _ value: Text) -> some View {

@@ -17,6 +17,11 @@ struct RunSummary: Identifiable, Equatable {
     /// Seconds per mile; 0 when distance is too short to compute.
     var averagePace: Double
     var splits: [Double]
+    /// Name of the guided workout, if the run was one.
+    var workoutName: String? = nil
+    /// Steps per minute over the run; nil when the pedometer gave no data.
+    var averageCadence: Double? = nil
+    var route: [RoutePoint] = []
 }
 
 @Observable
@@ -30,17 +35,26 @@ final class LocationTracker: NSObject, CLLocationManagerDelegate {
     private(set) var averagePace: Double?
     private(set) var splits: [Double] = []
     private(set) var errorMessage: String?
+    /// The guided workout for this run, if any. Set with `beginWorkout(_:)` before `start()`.
+    private(set) var workout: RoadWorkoutSession?
+    /// Step cadence for the current run.
+    let cadence = CadenceTracker()
 
     /// Called on each completed mile: (mile number, split seconds, average pace seconds per mile).
     @ObservationIgnored var onMile: (@MainActor (Int, Double, Double?) -> Void)?
     /// Called once per second while running with the current pace.
     @ObservationIgnored var onTick: (@MainActor (Double?) -> Void)?
+    /// Called for each pace-cue boundary crossed (quarter, half or full mile, per settings).
+    @ObservationIgnored var onDistanceCue: (@MainActor (DistanceCue) -> Void)?
+    /// Called for each guided-workout event.
+    @ObservationIgnored var onWorkoutEvent: (@MainActor (RoadWorkoutSession.Event) -> Void)?
 
     @ObservationIgnored private let manager: CLLocationManager
     @ObservationIgnored private var calculator = PaceCalculator()
     @ObservationIgnored private var timer: Timer?
     @ObservationIgnored private var startedAt = Date()
     @ObservationIgnored private var lastSampleAt: Date?
+    @ObservationIgnored private var cueTracker: DistanceCueTracker?
 
     init(manager: CLLocationManager = CLLocationManager()) {
         self.manager = manager
@@ -83,6 +97,10 @@ final class LocationTracker: NSObject, CLLocationManagerDelegate {
         splits = []
         errorMessage = nil
 
+        cueTracker = AppSettings.cueInterval.meters.map { DistanceCueTracker(intervalMeters: $0) }
+        cueTracker?.update(distance: 0, elapsed: 0)
+        cadence.start(at: now)
+
         // Only valid once authorized, and the Info.plist declares the location background mode.
         manager.allowsBackgroundLocationUpdates = true
         manager.showsBackgroundLocationIndicator = true
@@ -122,8 +140,14 @@ final class LocationTracker: NSObject, CLLocationManagerDelegate {
                                  distanceMeters: distance,
                                  durationSeconds: duration,
                                  averagePace: average,
-                                 splits: calculator.splits)
+                                 splits: calculator.splits,
+                                 workoutName: workout?.spec.name,
+                                 averageCadence: cadence.averageSPM(movingSeconds: duration),
+                                 route: calculator.route)
 
+        cadence.stop()
+        cueTracker = nil
+        workout = nil
         manager.stopUpdatingLocation()
         manager.allowsBackgroundLocationUpdates = false
         manager.showsBackgroundLocationIndicator = false
@@ -141,6 +165,45 @@ final class LocationTracker: NSObject, CLLocationManagerDelegate {
         averagePace = nil
         splits = []
         lastSampleAt = nil
+        cueTracker = nil
+        workout = nil
+        cadence.reset()
+    }
+
+    // MARK: Guided workout
+
+    /// Sets up a guided workout. Call before `start()`.
+    func beginWorkout(_ spec: RoadWorkoutSpec) {
+        guard phase == .idle else { return }
+        workout = RoadWorkoutSession(spec: spec)
+    }
+
+    /// Drops any workout set up with `beginWorkout(_:)` (for a free run).
+    func clearWorkout() {
+        guard phase == .idle else { return }
+        workout = nil
+    }
+
+    /// Ends the warm-up and starts rep 1.
+    func startReps() {
+        guard phase != .idle else { return }
+        let events = workout?.startReps(elapsed: calculator.elapsed(at: Date()),
+                                        distance: calculator.totalDistance) ?? []
+        forward(events)
+    }
+
+    /// Ends the current rep or recovery early.
+    func skipPhase() {
+        guard phase != .idle else { return }
+        let events = workout?.skip(elapsed: calculator.elapsed(at: Date()),
+                                   distance: calculator.totalDistance) ?? []
+        forward(events)
+    }
+
+    private func forward(_ events: [RoadWorkoutSession.Event]) {
+        for event in events {
+            onWorkoutEvent?(event)
+        }
     }
 
     // MARK: Internals
@@ -173,6 +236,8 @@ final class LocationTracker: NSObject, CLLocationManagerDelegate {
         if let last = lastSampleAt, Date().timeIntervalSince(last) > 10 {
             currentPace = nil
         }
+        let events = workout?.update(elapsed: elapsed, distance: calculator.totalDistance) ?? []
+        forward(events)
         onTick?(currentPace)
     }
 
@@ -195,6 +260,28 @@ final class LocationTracker: NSObject, CLLocationManagerDelegate {
         splits = calculator.splits
         lastSampleAt = Date()
         refreshClock()
+
+        if let stamp = samples.last?.timestamp {
+            advanceProgress(at: stamp)
+        }
+    }
+
+    /// Feeds distance cues and the guided workout after a batch of samples, using the sample's own time.
+    private func advanceProgress(at stamp: Date) {
+        let sampleElapsed = calculator.elapsed(at: stamp)
+        let distance = calculator.totalDistance
+
+        let events = workout?.update(elapsed: sampleElapsed, distance: distance) ?? []
+        forward(events)
+
+        let cues = cueTracker?.update(distance: distance, elapsed: sampleElapsed) ?? []
+        // No distance cues while a rep or recovery is running, so they never talk over the workout.
+        let suppressed = workout?.isInRepOrRecovery ?? false
+        if !suppressed {
+            for cue in cues {
+                onDistanceCue?(cue)
+            }
+        }
     }
 
     private func setAuthorization(_ status: CLAuthorizationStatus) {

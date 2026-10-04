@@ -11,19 +11,32 @@ final class RunRecord {
     /// Mile split durations in seconds. Empty for manually added runs.
     var splits: [Double]
     var notes: String
+    /// JSON-encoded `[RoutePoint]`. Empty for runs without a recorded route.
+    var routeData: Data = Data()
+    /// Average cadence in steps per minute; 0 when unknown.
+    var averageCadence: Double = 0
 
     init(date: Date,
          distanceMeters: Double,
          durationSeconds: Double,
          averagePace: Double,
          splits: [Double] = [],
-         notes: String = "") {
+         notes: String = "",
+         route: [RoutePoint] = [],
+         averageCadence: Double = 0) {
         self.date = date
         self.distanceMeters = distanceMeters
         self.durationSeconds = durationSeconds
         self.averagePace = averagePace
         self.splits = splits
         self.notes = notes
+        self.routeData = route.isEmpty ? Data() : ((try? JSONEncoder().encode(route)) ?? Data())
+        self.averageCadence = averageCadence
+    }
+
+    var route: [RoutePoint] {
+        guard !routeData.isEmpty else { return [] }
+        return (try? JSONDecoder().decode([RoutePoint].self, from: routeData)) ?? []
     }
 }
 

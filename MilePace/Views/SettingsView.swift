@@ -1,5 +1,6 @@
 import SwiftUI
 
+@MainActor
 struct SettingsView: View {
     @AppStorage(SettingsKey.mileTime) private var mileTime: Double = AppSettings.defaultMileTime
     @AppStorage(SettingsKey.goalMile) private var goalMile: Double = AppSettings.defaultGoalMile
@@ -8,6 +9,9 @@ struct SettingsView: View {
     @AppStorage(SettingsKey.trackCountdown) private var trackCountdown: Bool = true
     @AppStorage(SettingsKey.lapFeedback) private var lapFeedback: Bool = false
     @AppStorage(SettingsKey.haptics) private var haptics: Bool = true
+    @AppStorage(SettingsKey.cueInterval) private var cueInterval: CueInterval = .half
+    @AppStorage(SettingsKey.metronomeBPM) private var metronomeBPM: Int = AppSettings.defaultMetronomeBPM
+    @AppStorage(SettingsKey.metronomeVolume) private var metronomeVolume: Double = AppSettings.defaultMetronomeVolume
 
     @State private var mileText: String = ""
     @State private var goalText: String = ""
@@ -43,11 +47,31 @@ struct SettingsView: View {
                 }
 
                 Section("Voice and feedback") {
+                    Picker("Pace cues every", selection: $cueInterval) {
+                        ForEach(CueInterval.allCases) { interval in
+                            Text(interval.title).tag(interval)
+                        }
+                    }
                     Toggle("Announce each mile", isOn: $announceMiles)
+                        .disabled(cueInterval != .off)
                     Toggle("Pace guard cues on runs", isOn: $zoneGuardCues)
                     Toggle("Rest countdown on track", isOn: $trackCountdown)
                     Toggle("Lap feedback on track", isOn: $lapFeedback)
                     Toggle("Haptics", isOn: $haptics)
+                }
+
+                Section {
+                    Stepper(value: $metronomeBPM, in: ClickTrack.bpmRange, step: 2) {
+                        Text("Default tempo: \(metronomeBPM) spm")
+                    }
+                    HStack {
+                        Text("Volume")
+                        Slider(value: $metronomeVolume, in: 0.1...1.0)
+                    }
+                } header: {
+                    Text("Metronome")
+                } footer: {
+                    Text("A slightly quicker, shorter stride reduces impact per step. Raise cadence gradually, about 5% at a time.")
                 }
             }
             .navigationTitle("Settings")
@@ -62,6 +86,9 @@ struct SettingsView: View {
                 } else {
                     mileInvalid = true
                 }
+            }
+            .onChange(of: metronomeVolume) { _, newValue in
+                Metronome.shared.setVolume(Float(newValue))
             }
             .onChange(of: goalText) { _, newValue in
                 if let value = parseTime(newValue), AppSettings.validMileRange.contains(value) {

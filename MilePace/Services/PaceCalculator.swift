@@ -21,6 +21,18 @@ struct PaceSample: Equatable {
     }
 }
 
+/// One stored point of a run's route.
+struct RoutePoint: Codable, Equatable {
+    var lat: Double
+    var lon: Double
+    /// Moving elapsed seconds at this point.
+    var t: Double
+    /// Cumulative distance in meters at this point.
+    var d: Double
+    /// True for the first point of a run and after each pause or GPS re-anchor.
+    var segmentStart: Bool = false
+}
+
 /// Rolling pace, average pace, distance and mile splits from GPS samples.
 struct PaceCalculator {
     static let maxAccuracy: Double = 20
@@ -29,6 +41,8 @@ struct PaceCalculator {
     static let minWindowMeters: Double = 25
     static let smoothing: Double = 0.3
     static let maxConsecutiveJumps: Int = 5
+    /// Minimum cumulative distance between stored route points.
+    static let routeSpacing: Double = 10
 
     private struct Mark {
         var date: Date
@@ -40,6 +54,7 @@ struct PaceCalculator {
     private(set) var splits: [Double] = []
     private(set) var isPaused: Bool = false
     private(set) var startDate: Date?
+    private(set) var route: [RoutePoint] = []
 
     private var pausedAccumulated: Double = 0
     private var pauseStart: Date?
@@ -49,6 +64,7 @@ struct PaceCalculator {
     private var smoothed: Double?
     private var lastSplitElapsed: Double = 0
     private var jumpCount: Int = 0
+    private var nextPointStartsSegment: Bool = true
 
     init() {}
 
@@ -89,6 +105,21 @@ struct PaceCalculator {
         smoothed = nil
         currentPace = nil
         jumpCount = 0
+        nextPointStartsSegment = true
+    }
+
+    /// Stores a route point. Unless `force` is set, points closer than `routeSpacing` meters
+    /// (cumulative distance) to the last stored point are skipped.
+    private mutating func appendRoutePoint(_ sample: PaceSample, force: Bool) {
+        if !force, let last = route.last, totalDistance - last.d < PaceCalculator.routeSpacing {
+            return
+        }
+        route.append(RoutePoint(lat: sample.latitude,
+                                lon: sample.longitude,
+                                t: elapsed(at: sample.timestamp),
+                                d: totalDistance,
+                                segmentStart: nextPointStartsSegment))
+        nextPointStartsSegment = false
     }
 
     /// Moving time in seconds (pauses excluded).
@@ -125,6 +156,7 @@ struct PaceCalculator {
         guard let previous = lastSample else {
             lastSample = sample
             window = [Mark(date: sample.timestamp, distance: totalDistance)]
+            appendRoutePoint(sample, force: true)
             return []
         }
 
@@ -141,6 +173,8 @@ struct PaceCalculator {
                 smoothed = nil
                 currentPace = nil
                 jumpCount = 0
+                nextPointStartsSegment = true
+                appendRoutePoint(sample, force: true)
             }
             return []
         }
@@ -149,6 +183,7 @@ struct PaceCalculator {
         let distanceBefore = totalDistance
         totalDistance += segment
         lastSample = sample
+        appendRoutePoint(sample, force: false)
 
         // Mile splits, interpolating the crossing time inside this segment.
         var newSplits: [Double] = []

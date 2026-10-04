@@ -10,6 +10,27 @@ enum SettingsKey {
     static let lapFeedback = "trackLapFeedback"
     static let haptics = "hapticsEnabled"
     static let runZone = "runZoneTarget"
+    static let cueInterval = "cueInterval"
+    static let runMode = "runMode"
+    static let roadWorkoutName = "roadWorkoutName"
+    static let metronomeEnabled = "metronomeEnabled"
+    static let metronomeBPM = "metronomeBPM"
+    static let metronomeVolume = "metronomeVolume"
+}
+
+/// What the run screen is set up to do.
+enum RunMode: String, CaseIterable, Identifiable {
+    case free
+    case workout
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .free: return "Free run"
+        case .workout: return "Workout"
+        }
+    }
 }
 
 /// The zone the run screen guards pace against.
@@ -43,6 +64,8 @@ enum AppSettings {
     static let defaultMileTime: Double = 412
     static let defaultGoalMile: Double = 330
     static let validMileRange: ClosedRange<Double> = 240...720
+    static let defaultMetronomeBPM: Int = 166
+    static let defaultMetronomeVolume: Double = 0.6
 
     static func registerDefaults() {
         UserDefaults.standard.register(defaults: [
@@ -53,7 +76,12 @@ enum AppSettings {
             SettingsKey.trackCountdown: true,
             SettingsKey.lapFeedback: false,
             SettingsKey.haptics: true,
-            SettingsKey.runZone: RunZoneTarget.off.rawValue
+            SettingsKey.runZone: RunZoneTarget.off.rawValue,
+            SettingsKey.cueInterval: CueInterval.half.rawValue,
+            SettingsKey.runMode: RunMode.free.rawValue,
+            SettingsKey.metronomeEnabled: false,
+            SettingsKey.metronomeBPM: defaultMetronomeBPM,
+            SettingsKey.metronomeVolume: defaultMetronomeVolume
         ])
     }
 
@@ -78,6 +106,25 @@ enum AppSettings {
     static var trackCountdown: Bool { bool(SettingsKey.trackCountdown, fallback: true) }
     static var lapFeedback: Bool { bool(SettingsKey.lapFeedback, fallback: false) }
     static var haptics: Bool { bool(SettingsKey.haptics, fallback: true) }
+
+    static var cueInterval: CueInterval {
+        if let raw = UserDefaults.standard.string(forKey: SettingsKey.cueInterval),
+           let value = CueInterval(rawValue: raw) {
+            return value
+        }
+        return .half
+    }
+
+    static var metronomeBPM: Int {
+        if let value = UserDefaults.standard.object(forKey: SettingsKey.metronomeBPM) as? Int {
+            return min(max(value, ClickTrack.bpmRange.lowerBound), ClickTrack.bpmRange.upperBound)
+        }
+        return defaultMetronomeBPM
+    }
+
+    static var metronomeVolume: Double {
+        return min(max(double(SettingsKey.metronomeVolume, fallback: defaultMetronomeVolume), 0.1), 1.0)
+    }
 
     static var zones: PaceZones { PaceZones.forMile(mileTime) }
 }

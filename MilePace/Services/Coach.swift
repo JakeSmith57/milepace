@@ -3,7 +3,7 @@ import AVFoundation
 import UIKit
 
 /// Decides when to cue the runner that pace has drifted outside a target zone.
-/// Pace must be outside the zone for 20 s continuously; cues are at most once per 60 s.
+/// By default pace must be outside the zone for 20 s continuously and cues are at most once per 60 s.
 struct ZoneGuard {
     enum Cue: Equatable {
         case easyUp
@@ -13,11 +13,17 @@ struct ZoneGuard {
     static let outsideSecondsRequired: Double = 20
     static let minSecondsBetweenCues: Double = 60
 
+    private let requiredSeconds: Double
+    private let cueGapSeconds: Double
     private var outsideSince: Date?
     private var outsideCue: Cue?
     private var lastCue: Date?
 
-    init() {}
+    init(outsideSecondsRequired: Double = ZoneGuard.outsideSecondsRequired,
+         minSecondsBetweenCues: Double = ZoneGuard.minSecondsBetweenCues) {
+        self.requiredSeconds = outsideSecondsRequired
+        self.cueGapSeconds = minSecondsBetweenCues
+    }
 
     mutating func reset() {
         outsideSince = nil
@@ -52,10 +58,10 @@ struct ZoneGuard {
         }
 
         guard let since = outsideSince,
-              now.timeIntervalSince(since) >= ZoneGuard.outsideSecondsRequired else {
+              now.timeIntervalSince(since) >= requiredSeconds else {
             return nil
         }
-        if let last = lastCue, now.timeIntervalSince(last) < ZoneGuard.minSecondsBetweenCues {
+        if let last = lastCue, now.timeIntervalSince(last) < cueGapSeconds {
             return nil
         }
         lastCue = now
@@ -71,6 +77,8 @@ final class Coach: NSObject, AVSpeechSynthesizerDelegate {
     private let synthesizer: AVSpeechSynthesizer
     private var pendingUtterances = 0
     private var zoneGuard = ZoneGuard()
+    /// Tighter timings used while a workout rep is running.
+    private var repGuard = ZoneGuard(outsideSecondsRequired: 12, minSecondsBetweenCues: 30)
 
     private init(synthesizer: AVSpeechSynthesizer) {
         self.synthesizer = synthesizer
@@ -81,7 +89,16 @@ final class Coach: NSObject, AVSpeechSynthesizerDelegate {
     // MARK: Run announcements
 
     func announceMile(_ mile: Int, split: Double, average: Double?) {
-        guard AppSettings.announceMiles else { return }
+        // Cue interval Off keeps the v1.0 behavior. Quarter and half always announce whole miles.
+        // Mile cues replace this announcement entirely.
+        switch AppSettings.cueInterval {
+        case .off:
+            guard AppSettings.announceMiles else { return }
+        case .quarter, .half:
+            break
+        case .mile:
+            return
+        }
         var text = "Mile \(mile). Split \(spokenMinutesSeconds(split))."
         if let average = average {
             text += " Average \(spokenCompact(average))."
@@ -99,6 +116,64 @@ final class Coach: NSObject, AVSpeechSynthesizerDelegate {
         switch cue {
         case .easyUp: speak("Easy up")
         case .pickItUp: speak("Pick it up")
+        }
+    }
+
+    /// Short pace cue at each quarter, half or full mile. Whole-mile cues for quarter and half
+    /// intervals are left to `announceMile`, which also gives the split and average.
+    func announceDistanceCue(_ cue: DistanceCue, interval: CueInterval, zone: ClosedRange<Double>?) {
+        guard let perMile = interval.cuesPerMile else { return }
+        if interval != .mile && cue.index % perMile == 0 { return }
+        var text = "\(interval.spokenName) \(cue.index). Pace \(spokenCompact(cue.paceSecondsPerMile))."
+        if let zone = zone {
+            text += " " + ZoneVerdict.phrase(pace: cue.paceSecondsPerMile, zone: zone)
+        }
+        speak(text)
+    }
+
+    // MARK: Workout announcements
+
+    func resetRepGuard() {
+        repGuard.reset()
+    }
+
+    /// Pace-guard cue against a rep's target range, with tighter timings than a free run.
+    func evaluateRepZone(pace: Double?, zone: ClosedRange<Double>?, now: Date = Date()) {
+        guard AppSettings.zoneGuardCues else { return }
+        guard let cue = repGuard.update(pace: pace, zone: zone, now: now) else { return }
+        switch cue {
+        case .easyUp: speak("Easy up")
+        case .pickItUp: speak("Pick it up")
+        }
+    }
+
+    func announceWorkoutEvent(_ event: RoadWorkoutSession.Event, spec: RoadWorkoutSpec, repRange: ClosedRange<Double>) {
+        switch event {
+        case .repStarted(let number, let total):
+            repGuard.reset()
+            lapHaptic()
+            if total > 1 {
+                speak("Go. Rep \(number) of \(total). \(spec.spokenLength) at \(spec.target.spokenName).")
+            } else {
+                speak("Go. \(spec.spokenLength) at \(spec.target.spokenName).")
+            }
+        case .halfway:
+            speak("Halfway.")
+        case .repEnded(let number, let avgPace):
+            restEndHaptic()
+            var text = "Rep \(number) done."
+            if let pace = avgPace {
+                text += " Average \(spokenCompact(pace)). " + ZoneVerdict.phrase(pace: pace, zone: repRange)
+            }
+            speak(text)
+        case .recoveryCountdown(let seconds):
+            if seconds <= 3 {
+                speak("3, 2, 1")
+            } else {
+                speak("\(seconds) seconds")
+            }
+        case .workoutComplete:
+            speak("Workout complete. Cool down easy.")
         }
     }
 
@@ -148,13 +223,7 @@ final class Coach: NSObject, AVSpeechSynthesizerDelegate {
     }
 
     private func speak(_ text: String) {
-        let session = AVAudioSession.sharedInstance()
-        do {
-            try session.setCategory(.playback, mode: .voicePrompt, options: [.duckOthers, .mixWithOthers])
-            try session.setActive(true)
-        } catch {
-            // Speak anyway; the system may still route audio.
-        }
+        AudioSessionCoordinator.shared.beginSpeech()
         let utterance = AVSpeechUtterance(string: text)
         utterance.voice = AVSpeechSynthesisVoice(language: "en-US")
         utterance.rate = AVSpeechUtteranceDefaultSpeechRate
@@ -164,9 +233,7 @@ final class Coach: NSObject, AVSpeechSynthesizerDelegate {
 
     private func utteranceEnded() {
         pendingUtterances = max(0, pendingUtterances - 1)
-        if pendingUtterances == 0 {
-            try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
-        }
+        AudioSessionCoordinator.shared.endSpeech()
     }
 
     // MARK: AVSpeechSynthesizerDelegate

@@ -28,6 +28,8 @@
 	<string>MilePace keeps tracking your pace and distance while the screen is locked during a run.</string>
 	<key>NSLocationWhenInUseUsageDescription</key>
 	<string>MilePace uses your location to measure pace and distance during runs.</string>
+	<key>NSMotionUsageDescription</key>
+	<string>MilePace uses motion data to measure your running cadence (steps per minute).</string>
 	<key>UIBackgroundModes</key>
 	<array>
 		<string>location</string>
