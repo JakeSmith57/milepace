@@ -101,7 +101,8 @@ final class CadenceMathTests: XCTestCase {
                                  splits: [640, 648],
                                  workoutName: "20 min tempo",
                                  averageCadence: 174,
-                                 route: draft().route)
+                                 route: [RoutePoint(lat: 40.7, lon: -73.9, t: 0, d: 0, segmentStart: true),
+                                         RoutePoint(lat: 40.71, lon: -73.9, t: 600, d: 1500)])
         let run = RunDraft(summary: summary)
         XCTAssertEqual(run.start, start)
         XCTAssertEqual(run.distanceMeters, 3000)
