@@ -159,3 +159,34 @@ Field checks for v1.4: today card asks for permission once; after allowing, Set 
 updates the strip without opening the app and removes that day's evening note; tapping a notification opens today;
 pushing the plan back changes the scheduled days; turning a kind off removes it; a time trial week gets the
 "tomorrow" note at 6:00 pm.
+
+## v1.5 (see `PLAN-v6.md`)
+Written on Linux with no Swift toolchain, so **none of it has been compiled**. The data view is unchanged; the map view
+is presentation only (the same tracker, voice cues, metronome and workout engine run under both).
+
+New files:
+- `Models/LiveRouteSegments.swift`: pure `LiveRouteSegments.split(_:)` (split at `segmentStart`, drop pieces under two
+  points). Tests: `LiveRouteSegmentsTests` (empty, one segment, split on resume, one-point piece dropped, lone point).
+- `Views/LiveRunMapView.swift`: `LiveRunMapView(route:lastCoordinate:)` (iOS 17 `Map(position:)`, one `MapPolyline`
+  per piece, start / mile / you `Annotation`s, `.mapControls { }`, `[ follow ]` overlay shown while
+  `!position.followsUserLocation`) and `LiveRunReadout` (compact strip under the map).
+
+Changed:
+- `Services/LocationTracker.swift`: `liveRoute` (republished only when the route gained a point; cleared on start and
+  reset; seeded from the warm-up fix) and `lastCoordinate` (latest accepted or anchored fix, per batch).
+- `Design/Components+Instrument.swift`: `StatusLine(accessories:)` (defaulted, after the existing `accessory`; both are
+  shown, `accessory` first) and `PaceMeter(compact:)` (defaulted; 22 pt cells, no captions).
+- `Models/Settings.swift`: `SettingsKey.runViewMode`, `RunViewMode` (`data` | `map`, `other`).
+- `Views/RunView.swift`: `@AppStorage runViewMode`, `[ map ]` / `[ data ]` accessory (active runs only), `activeContent`
+  switches between `dataContent` and `mapContent`; diagnostics panel overlays the map region in the map view.
+- `SettingsView` and `project.yml` (version 1.5), README field note (battery).
+
+Most likely to need a compile fix: `Views/LiveRunMapView.swift` (`Map(position:)` with four `ForEach`es,
+`.mapControls { }`, `position.followsUserLocation`), `Design/Components+Instrument.swift` (the `ForEach` over
+`Array(allAccessories.enumerated())` with `id: \.offset`).
+
+Field checks for v1.5: `[ map ]` appears only during a run; the map follows you while running; pan and `[ follow ]`
+appears and works; pause then resume draws two separate lines; mile markers appear at 1 mi; the blue square tracks
+you; the choice survives killing the app; the diagnostics panel covers the map and closes cleanly; the status line is
+not cramped with both `[ diag ]` and `[ map ]` (turn diagnostics on to check); follow mode still works with no
+`UserAnnotation` on the map.

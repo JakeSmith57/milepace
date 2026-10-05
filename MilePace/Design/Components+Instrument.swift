@@ -76,6 +76,17 @@ struct StatusLine: View {
     /// Shows a blinking block cursor after the center text.
     var searching: Bool = false
     var accessory: StatusAccessory? = nil
+    /// More tappable words after `accessory`, such as "[ map ]" next to "[ diag ]".
+    var accessories: [StatusAccessory] = []
+
+    private var allAccessories: [StatusAccessory] {
+        var all: [StatusAccessory] = []
+        if let accessory = accessory {
+            all.append(accessory)
+        }
+        all.append(contentsOf: accessories)
+        return all
+    }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -104,18 +115,23 @@ struct StatusLine: View {
     private var leftGroup: some View {
         HStack(spacing: Theme.s2) {
             micro(left)
-            if let accessory = accessory {
-                Button(action: accessory.action) {
-                    Text("[ \(accessory.title) ]")
-                        .font(Theme.mono(.micro))
-                        .foregroundStyle(Theme.fg)
-                        .lineLimit(1)
-                        .padding(.vertical, Theme.s2)
-                        .contentShape(Rectangle())
-                }
-                .buttonStyle(InstrumentButtonStyle())
+            ForEach(Array(allAccessories.enumerated()), id: \.offset) { item in
+                accessoryButton(item.element)
             }
         }
+    }
+
+    private func accessoryButton(_ accessory: StatusAccessory) -> some View {
+        Button(action: accessory.action) {
+            Text("[ \(accessory.title) ]")
+                .font(Theme.mono(.micro))
+                .foregroundStyle(Theme.fg)
+                .lineLimit(1)
+                .minimumScaleFactor(0.7)
+                .padding(.vertical, Theme.s2)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(InstrumentButtonStyle())
     }
 
     private var centerGroup: some View {
@@ -226,6 +242,16 @@ struct HeroReadout: View {
 struct PaceMeter: View {
     let pace: Double?
     let zone: ClosedRange<Double>?
+    /// Short cells (22 pt) and no captions, for the map view's readout strip.
+    var compact: Bool = false
+
+    private var cellHeight: CGFloat {
+        return compact ? 22 : 40
+    }
+
+    private var markerHeight: CGFloat {
+        return compact ? 18 : 28
+    }
 
     private var activeCell: Int? {
         guard let zone = zone, let pace = pace, pace.isFinite else { return nil }
@@ -240,12 +266,14 @@ struct PaceMeter: View {
                         cell(index)
                     }
                 }
-                HStack(spacing: 0) {
-                    caption("faster")
-                    Spacer(minLength: 0)
-                    caption("on target")
-                    Spacer(minLength: 0)
-                    caption("slower")
+                if !compact {
+                    HStack(spacing: 0) {
+                        caption("faster")
+                        Spacer(minLength: 0)
+                        caption("on target")
+                        Spacer(minLength: 0)
+                        caption("slower")
+                    }
                 }
             }
             // Keeps its space but disappears until there is a pace to show.
@@ -273,11 +301,11 @@ struct PaceMeter: View {
             if isActive {
                 Rectangle()
                     .fill(Theme.fg)
-                    .frame(width: 10, height: 28)
+                    .frame(width: 10, height: markerHeight)
             }
         }
         .frame(maxWidth: .infinity)
-        .frame(height: 40)
+        .frame(height: cellHeight)
     }
 }
 

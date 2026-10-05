@@ -41,6 +41,12 @@ final class LocationTracker: NSObject, CLLocationManagerDelegate {
     let cadence = CadenceTracker()
     /// GPS quality for the status line. `.off` unless warming up or running.
     private(set) var gpsState: GPSState = .off
+    /// The run's route so far (downsampled to at least 10 m between points, the same points that get
+    /// saved), for the live map. Only republished when a point was added.
+    private(set) var liveRoute: [RoutePoint] = []
+    /// The latest accepted fix, for the "you are here" marker. `CLLocationCoordinate2D` is not
+    /// Equatable, so views must not compare it (use `liveRoute.count` or `distanceMeters` to react).
+    private(set) var lastCoordinate: CLLocationCoordinate2D?
 
     /// Called on each completed mile: (mile number, split seconds, average pace seconds per mile).
     @ObservationIgnored var onMile: (@MainActor (Int, Double, Double?) -> Void)?
@@ -176,6 +182,8 @@ final class LocationTracker: NSObject, CLLocationManagerDelegate {
         currentPace = nil
         averagePace = nil
         splits = []
+        liveRoute = []
+        lastCoordinate = nil
         errorMessage = nil
 
         let diagnostics = Diagnostics.shared
@@ -193,6 +201,8 @@ final class LocationTracker: NSObject, CLLocationManagerDelegate {
                                      currentPace: calculator.currentPace,
                                      cadence: nil,
                                      elapsed: 0)
+            liveRoute = calculator.route
+            lastCoordinate = CLLocationCoordinate2D(latitude: seed.latitude, longitude: seed.longitude)
         }
 
         cueTracker = AppSettings.cueInterval.meters.map { DistanceCueTracker(intervalMeters: $0) }
@@ -278,6 +288,8 @@ final class LocationTracker: NSObject, CLLocationManagerDelegate {
         currentPace = nil
         averagePace = nil
         splits = []
+        liveRoute = []
+        lastCoordinate = nil
         lastSampleAt = nil
         cueTracker = nil
         workout = nil
@@ -403,9 +415,13 @@ final class LocationTracker: NSObject, CLLocationManagerDelegate {
             }
             return
         }
+        var latestAccepted: PaceSample?
         for sample in samples {
             let before = calculator.splits.count
             calculator.add(sample)
+            if calculator.lastOutcome == .accepted || calculator.lastOutcome == .anchored {
+                latestAccepted = sample
+            }
             let sampleElapsed = calculator.elapsed(at: sample.timestamp)
             diagnostics.setClock(sampleElapsed)
             diagnostics.recordSample(sample,
@@ -428,11 +444,23 @@ final class LocationTracker: NSObject, CLLocationManagerDelegate {
         distanceMeters = calculator.totalDistance
         currentPace = calculator.currentPace
         splits = calculator.splits
+        publishLiveRoute(latestAccepted)
         lastSampleAt = Date()
         refreshClock()
 
         if let stamp = samples.last?.timestamp {
             advanceProgress(at: stamp)
+        }
+    }
+
+    /// Publishes the route and the latest accepted fix for the live map. The route array is only
+    /// replaced when a point was added, so the map is not redrawn for every sample.
+    private func publishLiveRoute(_ latest: PaceSample?) {
+        if calculator.route.count != liveRoute.count {
+            liveRoute = calculator.route
+        }
+        if let fix = latest {
+            lastCoordinate = CLLocationCoordinate2D(latitude: fix.latitude, longitude: fix.longitude)
         }
     }
 

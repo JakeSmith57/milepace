@@ -13,6 +13,7 @@ enum SettingsKey {
     static let cueInterval = "cueInterval"
     static let runMode = "runMode"
     static let roadWorkoutName = "roadWorkoutName"
+    static let runViewMode = "runViewMode"
     static let metronomeEnabled = "metronomeEnabled"
     static let metronomeBPM = "metronomeBPM"
     static let metronomeVolume = "metronomeVolume"
@@ -55,6 +56,20 @@ enum RunMode: String, CaseIterable, Identifiable {
         switch self {
         case .free: return "Free run"
         case .workout: return "Workout"
+        }
+    }
+}
+
+/// Which view the active run screen shows. Presentation only; the run is the same in both.
+enum RunViewMode: String {
+    case data
+    case map
+
+    /// The other view.
+    var other: RunViewMode {
+        switch self {
+        case .data: return .map
+        case .map: return .data
         }
     }
 }

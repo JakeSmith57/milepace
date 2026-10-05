@@ -21,6 +21,7 @@ struct RunView: View {
     @AppStorage(SettingsKey.metronomeBPM) private var metronomeBPM: Int = AppSettings.defaultMetronomeBPM
     @AppStorage(SettingsKey.metronomeVolume) private var metronomeVolume: Double = AppSettings.defaultMetronomeVolume
     @AppStorage(SettingsKey.diagnostics) private var diagnosticsEnabled: Bool = false
+    @AppStorage(SettingsKey.runViewMode) private var viewMode: RunViewMode = .data
 
     @State private var summary: RunSummary?
     @State private var showDiagnostics: Bool = false
@@ -164,6 +165,25 @@ struct RunView: View {
         return StatusAccessory(title: "diag", action: { showDiagnostics.toggle() })
     }
 
+    /// "[ map ]" in the data view, "[ data ]" in the map view. Only while a run is active.
+    private var viewAccessory: StatusAccessory? {
+        guard tracker.phase != .idle else { return nil }
+        let showingMap = viewMode == .map
+        return StatusAccessory(title: showingMap ? "data" : "map",
+                               action: { viewMode = viewMode.other })
+    }
+
+    private var accessoryList: [StatusAccessory] {
+        var list: [StatusAccessory] = []
+        if let diag = diagAccessory {
+            list.append(diag)
+        }
+        if let view = viewAccessory {
+            list.append(view)
+        }
+        return list
+    }
+
     private var activeCenter: String {
         if tracker.phase == .paused {
             return "paused"
@@ -183,7 +203,7 @@ struct RunView: View {
                           right: idle ? "" : formatDuration(tracker.elapsed),
                           recording: tracker.phase == .running,
                           searching: tracker.gpsState.isSearching,
-                          accessory: diagAccessory)
+                          accessories: accessoryList)
     }
 
     // MARK: Idle
@@ -342,13 +362,43 @@ struct RunView: View {
     private var activeContent: some View {
         VStack(spacing: 0) {
             workoutBanner
+            if viewMode == .map {
+                mapContent
+            } else {
+                dataContent
+            }
+            controls
+        }
+    }
+
+    /// The data view: big pace, meter and the readout list.
+    private var dataContent: some View {
+        VStack(spacing: 0) {
             paceBlock
             if diagnosticsVisible {
                 DiagnosticsPanel(onClose: { showDiagnostics = false })
             } else {
                 readoutScroll
             }
-            controls
+        }
+    }
+
+    /// The map view: the live map (the diagnostics panel overlays it) over a compact readout strip.
+    private var mapContent: some View {
+        VStack(spacing: 0) {
+            ZStack {
+                LiveRunMapView(route: tracker.liveRoute, lastCoordinate: tracker.lastCoordinate)
+                if diagnosticsVisible {
+                    DiagnosticsPanel(onClose: { showDiagnostics = false })
+                }
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            LiveRunReadout(pace: tracker.currentPace,
+                           averagePace: tracker.averagePace,
+                           zone: activeRange,
+                           distanceMeters: tracker.distanceMeters,
+                           elapsed: tracker.elapsed,
+                           cadence: tracker.cadence.currentSPM)
         }
     }
 

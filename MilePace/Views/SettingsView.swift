@@ -64,7 +64,7 @@ struct SettingsView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            StatusLine(left: "milepace", center: "set", right: "v1.4")
+            StatusLine(left: "milepace", center: "set", right: "v1.5")
             ScrollView {
                 VStack(alignment: .leading, spacing: 0) {
                     mileTimes
