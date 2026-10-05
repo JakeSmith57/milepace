@@ -24,8 +24,8 @@ enum PlanText {
         return text
     }
 
-    /// What the missed card says when the session itself would land on or after the day before the race.
-    static let noRoomNote = "no room before the race. it'll be skipped."
+    /// What the missed card says when the session itself has no room left this week.
+    static let noRoomNote = "no room this week. it'll be skipped."
 
     /// The missed card's main button: "do it today", or "move to wed oct 21" when the first allowed day
     /// is later. `label` is the target day's label.
@@ -38,23 +38,30 @@ enum PlanText {
         return count == 1 ? "1 session" : "\(count) sessions"
     }
 
-    /// What the missed card says before "do it today" is confirmed: how many other sessions move later
-    /// and how many are dropped to keep the race day. `raceLabel` is the race day's label ("mon jun 21").
-    static func pushNote(moved: Int, dropped: Int, raceLabel: String) -> String {
-        if moved <= 0 && dropped <= 0 {
-            return "doing it today moves nothing else."
+    /// What the missed card says before the push is confirmed. `moved` is how many other sessions of the
+    /// week move, `dropped` describes the sessions skipped to make room ("the 2 mi easy on fri"), and
+    /// `targetLabel` is the day the missed session lands on when that is not today ("moving it to wed oct 21 moves ...").
+    static func pushNote(moved: Int, dropped: [String], targetLabel: String? = nil) -> String {
+        if moved <= 0 && dropped.isEmpty {
+            if let label = targetLabel {
+                return "moves to " + label + "."
+            }
+            return "moves to today."
         }
-        var text = "doing it today"
+        var text = targetLabel.map { "moving it to " + $0 } ?? "doing it today"
         if moved > 0 {
-            text += " moves " + sessionCount(moved) + " later"
+            text += " moves " + sessionCount(moved) + " this week"
         }
-        if dropped > 0 {
-            text += (moved > 0 ? " and drops " : " drops ") + sessionCount(dropped)
-                + " to keep the race on " + raceLabel + "."
-        } else {
-            text += "."
+        if !dropped.isEmpty {
+            text += (moved > 0 ? " and skips " : " skips ") + String(dropped.count)
+                + " (" + dropped.joined(separator: ", ") + ")"
         }
-        return text
+        return text + "."
+    }
+
+    /// "the 2 mi easy on fri": a skipped session named for the note.
+    static func droppedItem(title: String, dayShort: String) -> String {
+        return "the " + title + " on " + dayShort
     }
 
     /// "target \u{2264} 6:35" for a time trial that has a goal time; nil for everything else.

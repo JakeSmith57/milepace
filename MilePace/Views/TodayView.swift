@@ -224,11 +224,18 @@ struct TodayView: View {
     private func missedNote(_ schedule: PlanSchedule, _ index: Int, _ result: PushBackResult) -> some View {
         if result.dropped.contains(index) {
             micro(PlanText.noRoomNote)
-        } else if moveTarget(schedule, index, result) != nil {
+        } else if let target = moveTarget(schedule, index, result) {
             micro(PlanText.pushNote(moved: result.moved.count,
-                                    dropped: result.dropped.count,
-                                    raceLabel: dayLabel(schedule.raceDayOffset)))
+                                    dropped: result.dropped.map { droppedItem(schedule, $0) },
+                                    targetLabel: target == today ? nil : dayLabel(target)))
         }
+    }
+
+    /// "the 2 mi easy on fri" for a session the push would skip.
+    private func droppedItem(_ schedule: PlanSchedule, _ index: Int) -> String {
+        let date = PlanCalendar.date(forOffset: schedule.dayOffset(index), start: store.startDate)
+        let short = String(PlanFormat.weekdayName(date).prefix(3))
+        return PlanText.droppedItem(title: schedule.plan.sessions[index].title, dayShort: short)
     }
 
     // MARK: Today

@@ -100,8 +100,8 @@ final class PlanStore {
         Reminders.shared.reschedule(clearDelivered: true)
     }
 
-    /// "Do it today" for a missed session: it moves to today (or the first allowed day after) and the
-    /// unfinished sessions behind it move later as far as they must; see `PlanSchedule.pushingBack`.
+    /// "Do it today" for a missed session: it moves to today (or the first allowed day after it this
+    /// week) and the rest of this calendar week is re-placed around it; see `PlanSchedule.pushingBack`.
     func doItToday(missed index: Int) {
         guard let schedule = schedule else { return }
         apply(schedule.pushingBack(missed: index, today: todayOffset).progress)

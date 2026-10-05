@@ -229,11 +229,11 @@ struct StripCell: Equatable {
 
 /// What `PlanSchedule.pushingBack` decided.
 struct PushBackResult: Equatable {
-    /// Progress with the missed session and everything behind it moved, and the dropped sessions skipped.
+    /// Progress with the missed session and the rest of the week moved, and the dropped sessions skipped.
     var progress: PlanProgress
-    /// Sessions other than the missed one that moved to a later day.
+    /// Sessions other than the missed one that moved to a later day this week.
     var moved: [Int]
-    /// Sessions skipped because they would land on or after the day before the race.
+    /// Sessions skipped because the rest of the week had no room for them (the missed one included).
     var dropped: [Int]
 }
 
@@ -422,12 +422,24 @@ struct PlanSchedule {
 
     // MARK: Push back
 
-    /// Road, track and time trial sessions are the hard ones: two of them never sit on neighbouring
-    /// days. Long runs and the race do not count.
+    /// Road, track, time trial and race sessions are the hard ones: two of them never sit on neighbouring
+    /// days. Easy and long runs may follow a hard session.
     static func isHard(_ kind: SessionKind) -> Bool {
         switch kind {
-        case .road, .track, .timeTrial: return true
-        case .easy, .long, .race, .other: return false
+        case .road, .track, .timeTrial, .race: return true
+        case .easy, .long, .other: return false
+        }
+    }
+
+    /// How much a session matters when a crowded week has to lose some: higher is kept first.
+    static func priority(_ kind: SessionKind) -> Int {
+        switch kind {
+        case .timeTrial, .race: return 4
+        case .track: return 3
+        case .road: return 2
+        case .long: return 1
+        case .easy: return 0
+        case .other: return -1
         }
     }
 
@@ -454,38 +466,57 @@ struct PlanSchedule {
         return (all: all, hard: hard)
     }
 
-    /// The first day from `start` and before `cutoff` that a moved session may take: not a Wednesday or
-    /// Sunday, not the day of a finished session, and for a hard session not next to another hard one
-    /// (one already placed in this pass or a finished one). Nil when there is none.
-    private func openDay(from start: Int,
-                         hard: Bool,
-                         cutoff: Int,
-                         finished: (all: Set<Int>, hard: Set<Int>),
-                         placedHard: Set<Int>) -> Int? {
-        let limit = cutoff == Int.max ? start + 366 : cutoff
-        var day = start
-        while day < limit {
-            let weekday = weekdayNumber(ofDay: day)
-            var open = weekday != 3 && weekday != 7 && !finished.all.contains(day)
-            if open && hard {
-                if placedHard.contains(day - 1) || finished.hard.contains(day - 1) || finished.hard.contains(day + 1) {
+    /// Places `order` (the missed session first, then the others in plan order) on the open days from
+    /// `today` through `lastDay`. Each session wants its own day, or the day after the one before it,
+    /// whichever is later, and takes the first open day from there: not a Wednesday or Sunday, not a day
+    /// in `occupied`, not at or after `limit`, and for a hard session not next to a hard day in `fixedHard`
+    /// or one placed already. Nil when some session finds no day.
+    private func placing(_ order: [Int],
+                         missed: Int,
+                         today: Int,
+                         lastDay: Int,
+                         limit: Int,
+                         occupied: Set<Int>,
+                         fixedHard: Set<Int>) -> [Int: Int]? {
+        var placed: [Int: Int] = [:]
+        var taken = occupied
+        var hardDays = fixedHard
+        var previous = today - 1
+        for index in order {
+            let hard = PlanSchedule.isHard(plan.sessions[index].kind)
+            let own = index == missed ? today : dayOffset(index)
+            var day = max(own, previous + 1)
+            var found: Int? = nil
+            while day <= lastDay && day < limit {
+                let weekday = weekdayNumber(ofDay: day)
+                var open = weekday != 3 && weekday != 7 && !taken.contains(day)
+                if open && hard && (hardDays.contains(day - 1) || hardDays.contains(day + 1)) {
                     open = false
                 }
+                if open {
+                    found = day
+                    break
+                }
+                day += 1
             }
-            if open {
-                return day
+            guard let chosen = found else { return nil }
+            placed[index] = chosen
+            taken.insert(chosen)
+            if hard {
+                hardDays.insert(chosen)
             }
-            day += 1
+            previous = chosen
         }
-        return nil
+        return placed
     }
 
-    /// "Do it today" for the missed session `missed`. The missed session and every unfinished session
-    /// after it (the race excepted) are placed in plan order. The missed one takes `today`; each next one
-    /// takes the later of its own day and the day after the one before it, then moves on until the day is
-    /// allowed. Moving stops at the first session that can keep its day, so a slip only ripples as far as
-    /// it must. A session that would land on or after the day before the race is skipped (`dropped`), and
-    /// the race and finished sessions never move. Easy and long runs may follow a hard session.
+    /// "Do it today" for the missed session `missed`, contained in the calendar Monday-to-Sunday week
+    /// that holds `today`. The missed session takes today, or the first open day after it this week. The
+    /// unfinished sessions scheduled from today through that Sunday are placed again in plan order, each
+    /// keeping its day when it still fits. When they do not all fit, the lowest priority ones are
+    /// skipped until they do (time trial and race, then track, road, long, easy; the later of two equals
+    /// goes first) and returned in `dropped`. Sessions in later weeks, finished sessions and the race never
+    /// move, and no day at or after the race is used.
     func pushingBack(missed: Int, today: Int) -> PushBackResult {
         let unchanged = PushBackResult(progress: progress, moved: [], dropped: [])
         guard plan.sessions.indices.contains(missed),
@@ -495,47 +526,64 @@ struct PlanSchedule {
             return unchanged
         }
 
-        var cutoff = Int.max
+        let lastDay = calendarWeekStart(containing: today) + 6
+        var limit = Int.max
+        var occupied = finishedDays().all
+        var fixedHard = finishedDays().hard
         if let race = raceIndex {
-            cutoff = dayOffset(race) - 1
+            limit = dayOffset(race)
+            occupied.insert(limit)
+            fixedHard.insert(limit)
         }
-        let finished = finishedDays()
-        let pending = plan.sessions.indices.filter { index in
-            index >= missed && status(index) == nil && plan.sessions[index].kind != .race
+        let others = plan.sessions.indices.filter { index in
+            index != missed
+                && status(index) == nil
+                && plan.sessions[index].kind != .race
+                && dayOffset(index) >= today
+                && dayOffset(index) <= lastDay
+        }
+        var order = [missed] + others
+        var dropped: [Int] = []
+        var placed: [Int: Int] = [:]
+        // The missed session is placed first, so what the others do never changes whether it fits. When
+        // it finds no day this week it alone is skipped and the rest of the week stays as it is.
+        if placing([missed], missed: missed, today: today, lastDay: lastDay,
+                   limit: limit, occupied: occupied, fixedHard: fixedHard) == nil {
+            order = []
+            dropped = [missed]
+        }
+        while !order.isEmpty {
+            if let result = placing(order, missed: missed, today: today, lastDay: lastDay,
+                                    limit: limit, occupied: occupied, fixedHard: fixedHard) {
+                placed = result
+                break
+            }
+            // Something does not fit: the least important session of the week goes.
+            var victim = order[0]
+            for index in order {
+                let low = PlanSchedule.priority(plan.sessions[index].kind)
+                let current = PlanSchedule.priority(plan.sessions[victim].kind)
+                if low < current || (low == current && index > victim) {
+                    victim = index
+                }
+            }
+            order.removeAll(where: { $0 == victim })
+            dropped.append(victim)
         }
 
         var updated = progress
         var moved: [Int] = []
-        var dropped: [Int] = []
-        var placedHard = Set<Int>()
-        var previous = today - 1
-        for index in pending {
-            let current = dayOffset(index)
-            let hard = PlanSchedule.isHard(plan.sessions[index].kind)
-            let earliest = index == missed ? today : max(current, previous + 1)
-            if index != missed && earliest == current && !(hard && placedHard.contains(current - 1)) {
-                // This one keeps its day, and so does everything after it.
-                break
-            }
-            guard let day = openDay(from: earliest,
-                                    hard: hard,
-                                    cutoff: cutoff,
-                                    finished: finished,
-                                    placedHard: placedHard) else {
-                updated.statuses[PlanProgress.key(index)] = .skipped
-                dropped.append(index)
-                continue
-            }
-            setDay(index, day, in: &updated)
-            if hard {
-                placedHard.insert(day)
-            }
-            previous = day
-            if index != missed && day != current {
+        for index in order {
+            guard let day = placed[index] else { continue }
+            if index != missed && day != dayOffset(index) {
                 moved.append(index)
             }
+            setDay(index, day, in: &updated)
         }
-        return PushBackResult(progress: updated, moved: moved, dropped: dropped)
+        for index in dropped {
+            updated.statuses[PlanProgress.key(index)] = .skipped
+        }
+        return PushBackResult(progress: updated, moved: moved.sorted(), dropped: dropped.sorted())
     }
 
     // MARK: Status changes
