@@ -50,7 +50,15 @@ jobs:
             -allowProvisioningUpdates \
             -authenticationKeyPath "$RUNNER_TEMP/AuthKey.p8" \
             -authenticationKeyID "$ASC_KEY_ID" \
-            -authenticationKeyIssuerID "$ASC_ISSUER_ID"
+            -authenticationKeyIssuerID "$ASC_ISSUER_ID" 2>&1 | tee "$RUNNER_TEMP/archive.log"
+
+      - name: Report archive errors as annotations
+        if: failure()
+        run: |
+          [ -f "$RUNNER_TEMP/archive.log" ] || exit 0
+          grep -E "error:|: error|\*\* ARCHIVE FAILED" "$RUNNER_TEMP/archive.log" | sort -u | head -40 | while IFS= read -r line; do
+            echo "::error::${line:0:600}"
+          done
 
       - name: Prepare export options
         run: |
