@@ -99,9 +99,10 @@ struct RunView: View {
             syncWarmup()
             applyPendingRoute()
         }
-        .onChange(of: tracker.phase) { _, phase in
+        .onChange(of: tracker.phase) { old, phase in
             // A day change at 03:00 must not forget the session while a run is going.
             store.runInProgress = phase != .idle
+            followRunWithMetronome(from: old, to: phase)
         }
         .onChange(of: isActive) { _, active in
             syncWarmup()
@@ -487,6 +488,9 @@ struct RunView: View {
         if metronome.isRunning {
             return cadenceText + " \u{2669}\(metronome.bpm)"
         }
+        if metronome.isSuspended {
+            return cadenceText + " \u{2669}paused"
+        }
         return cadenceText + " click off"
     }
 
@@ -797,9 +801,33 @@ struct RunView: View {
         summary = result
     }
 
+    /// The click follows the run: a pause silences it, a resume brings it back. Driven by the run's phase
+    /// so every way of pausing is covered. Ending the run stops it in `endRun()`.
+    private func followRunWithMetronome(from old: RunPhase, to phase: RunPhase) {
+        switch phase {
+        case .paused:
+            metronome.suspend()
+        case .running:
+            if old == .paused {
+                metronome.resumeFromSuspend()
+            }
+        case .idle:
+            break
+        }
+    }
+
     private func toggleMetronome() {
         if metronome.isRunning {
             metronome.stop()
+        } else if isPaused {
+            // Never start audio while paused: a second tap clears the hold, the first one sets it.
+            if metronome.isSuspended {
+                metronome.stop()
+            } else {
+                metronome.setBPM(metronomeBPM)
+                metronome.setVolume(Float(min(max(metronomeVolume, 0.1), 1.0)))
+                metronome.suspendedStart()
+            }
         } else {
             metronome.setBPM(metronomeBPM)
             metronome.setVolume(Float(min(max(metronomeVolume, 0.1), 1.0)))

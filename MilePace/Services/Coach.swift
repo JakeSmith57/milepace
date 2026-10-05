@@ -257,12 +257,47 @@ final class Coach: NSObject, AVSpeechSynthesizerDelegate {
         synthesizer.stopSpeaking(at: .immediate)
     }
 
-    private func speak(_ text: String, reason: String? = nil) {
+    /// English voices the runner can pick, as plain values: every installed voice mapped, personal
+    /// voices left out, then filtered and ordered by `VoiceCatalog`.
+    static func availableVoices() -> [VoiceOption] {
+        var all: [VoiceOption] = []
+        for voice in AVSpeechSynthesisVoice.speechVoices() {
+            if voice.voiceTraits.contains(.isPersonalVoice) { continue }
+            let quality: Int
+            switch voice.quality {
+            case .enhanced: quality = 2
+            case .premium: quality = 3
+            default: quality = 1
+            }
+            all.append(VoiceOption(id: voice.identifier,
+                                   name: voice.name,
+                                   language: voice.language,
+                                   quality: quality))
+        }
+        return VoiceCatalog.options(from: all)
+    }
+
+    /// Says a sample cue in the given voice ("" is the default voice), cutting off anything being said.
+    func preview(identifier: String) {
+        stopSpeaking()
+        speak("Mile 1. Split 7 minutes 2. Speed up.", reason: "preview", voiceIdentifier: identifier)
+    }
+
+    /// The voice for an identifier from Set; the system en-US voice when it is empty or no longer installed.
+    private func voice(for identifier: String) -> AVSpeechSynthesisVoice? {
+        if !identifier.isEmpty, let chosen = AVSpeechSynthesisVoice(identifier: identifier) {
+            return chosen
+        }
+        return AVSpeechSynthesisVoice(language: "en-US")
+    }
+
+    /// `voiceIdentifier` overrides the stored choice (the preview in the voice picker).
+    private func speak(_ text: String, reason: String? = nil, voiceIdentifier: String? = nil) {
         Diagnostics.shared.logCue(text, reason: reason)
         AudioSessionCoordinator.shared.beginSpeech()
         let utterance = AVSpeechUtterance(string: text)
-        utterance.voice = AVSpeechSynthesisVoice(language: "en-US")
-        utterance.rate = AVSpeechUtteranceDefaultSpeechRate
+        utterance.voice = voice(for: voiceIdentifier ?? AppSettings.voiceIdentifier)
+        utterance.rate = Float(AppSettings.voiceRate)
         pendingUtterances += 1
         synthesizer.speak(utterance)
     }

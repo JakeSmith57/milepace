@@ -24,6 +24,8 @@ final class Metronome {
     static let shared = Metronome()
 
     private(set) var isRunning = false
+    /// True while a pause holds the click back: it is silent now and comes back on resume.
+    private(set) var isSuspended = false
     private(set) var bpm: Int = AppSettings.defaultMetronomeBPM
     private(set) var volume: Float = Float(AppSettings.defaultMetronomeVolume)
 
@@ -69,6 +71,7 @@ final class Metronome {
     func start() {
         guard !isRunning else { return }
         wasRunningBeforeInterruption = false
+        isSuspended = false
         AudioSessionCoordinator.shared.beginMetronome()
         isRunning = true
         if startEngine() {
@@ -81,11 +84,48 @@ final class Metronome {
 
     func stop() {
         wasRunningBeforeInterruption = false
+        isSuspended = false
         guard isRunning else { return }
         haltEngine()
         isRunning = false
         AudioSessionCoordinator.shared.endMetronome()
         Diagnostics.shared.log(.audio, "metronome stop")
+    }
+
+    private var pauseState: MetronomePauseLogic.State {
+        return MetronomePauseLogic.State(running: isRunning,
+                                         suspended: isSuspended,
+                                         interruptedWhileRunning: wasRunningBeforeInterruption)
+    }
+
+    /// The run is paused: silence the click, and bring it back on `resumeFromSuspend()`. A click that an
+    /// interruption had already stopped is held back too, so the interruption ending cannot start it.
+    func suspend() {
+        let before = pauseState
+        let after = MetronomePauseLogic.onPause(before)
+        if before.running {
+            haltEngine()
+            isRunning = false
+            AudioSessionCoordinator.shared.endMetronome()
+            Diagnostics.shared.log(.audio, "metronome paused")
+        }
+        isSuspended = after.suspended
+        wasRunningBeforeInterruption = after.interruptedWhileRunning
+    }
+
+    /// The run resumed: start the click again if a pause held it back. Does nothing otherwise.
+    func resumeFromSuspend() {
+        let result = MetronomePauseLogic.onResume(pauseState)
+        isSuspended = result.0.suspended
+        if result.startAudio {
+            start()
+        }
+    }
+
+    /// While paused, the runner turned the click on: no sound now, it starts on resume.
+    func suspendedStart() {
+        guard !isRunning else { return }
+        isSuspended = true
     }
 
     /// Sets the tempo (clamped to the supported range) and restarts the click if it is playing.
@@ -177,9 +217,11 @@ final class Metronome {
             AudioSessionCoordinator.shared.endMetronome()
             Diagnostics.shared.log(.audio, "metronome interrupted")
         case .ended:
-            let resume = wasRunningBeforeInterruption && AudioSessionEvents.shouldResume(optionsRaw: rawOptions)
-            wasRunningBeforeInterruption = false
-            if resume {
+            let result = MetronomePauseLogic.onInterruptionEnded(
+                pauseState,
+                shouldResume: AudioSessionEvents.shouldResume(optionsRaw: rawOptions))
+            wasRunningBeforeInterruption = result.0.interruptedWhileRunning
+            if result.startAudio && !isSuspended {
                 start()
             }
         @unknown default:

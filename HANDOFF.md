@@ -285,3 +285,18 @@ on the real start day or after the test Sunday, never during a run or track sess
 Most likely to need a compile fix: `PlanStore.init` (new stored properties before use), `RunDraft`/`TrackSessionDraft`
 (`init(from:)` in an extension with explicit `CodingKeys`), `SettingsView.testWeekSection` (`let` in a `@ViewBuilder`).
 Field checks: start a test week, do each session, end it and confirm Log is empty; kill the app mid test run and relaunch.
+
+## v1.8: metronome follows pause, voice picker (PLAN-v10)
+Written on Linux with no Swift toolchain, so **none of it has been compiled**; `main` (v1.7) is the last compiled state.
+New files: `Models/MetronomePauseLogic.swift` (pure pause / resume / interruption decisions that `Metronome` applies),
+`Models/VoiceCatalog.swift` (`VoiceOption`, `VoiceCatalog.options/label/resolve`, no AVFoundation types), `Views/VoicePickerView.swift`.
+Tests: `MetronomePauseLogicTests`, `VoiceCatalogTests`.
+Changed: `Metronome` (`isSuspended`, `suspend()`, `resumeFromSuspend()`, `suspendedStart()`; `stop()` and `start()` clear it; an
+interruption ending never starts a suspended click), `RunView` (`.onChange(of: tracker.phase)` drives suspend and resume, so every pause path
+is covered; cadence tap while paused only sets or clears the hold; readout shows `paused`), `Coach` (`availableVoices()`, `preview(identifier:)`,
+voice and rate from settings), `Settings` (`voiceIdentifier`, `voiceRate`), `SettingsView` (voice row opens `VoicePickerView` as a sheet because Set
+is not in a NavigationStack), `project.yml` (version 1.8).
+Most likely to need a compile fix: `Coach.availableVoices()` (`voiceTraits.contains(.isPersonalVoice)`, `voice.quality` switch),
+`VoicePickerView` (`ChoiceRow<Double>`), `SettingsView.voiceRow` (three modifiers on a Button in a computed property).
+Field checks: pause a run with the click on (silent at once), resume (click returns), tap cadence while paused, take a call while paused;
+pick an enhanced voice in Set and hear the sample; slower / faster speed; download a voice in iOS Settings and return (list refreshes).

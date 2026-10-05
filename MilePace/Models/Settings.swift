@@ -27,6 +27,9 @@ enum SettingsKey {
     static let reminderMorningMinutes = "reminderMorningMinutes"
     static let reminderEveningMinutes = "reminderEveningMinutes"
     static let paceWindow = "paceWindowSeconds"
+    /// `AVSpeechSynthesisVoice` identifier; empty means the system default en-US voice.
+    static let voiceIdentifier = "voiceIdentifier"
+    static let voiceRate = "voiceRate"
     /// "yyyy-MM-dd" the test week started on; empty or missing when it is off. Not a view setting:
     /// `PlanStore` owns it, so starting and ending always clean up properly.
     static let testWeekStart = "testWeekStart"
@@ -120,6 +123,9 @@ enum AppSettings {
     static let defaultMetronomeVolume: Double = 0.6
     static let defaultPaceWindow: Double = PaceZones.defaultWindow
     static let paceWindowRange: ClosedRange<Double> = PaceZones.windowRange
+    /// Equals `AVSpeechUtteranceDefaultSpeechRate`; this file stays free of AVFoundation.
+    static let defaultVoiceRate: Double = 0.5
+    static let voiceRateRange: ClosedRange<Double> = 0.40...0.60
 
     static func registerDefaults() {
         UserDefaults.standard.register(defaults: [
@@ -145,7 +151,9 @@ enum AppSettings {
             SettingsKey.reminderWeekly: true,
             SettingsKey.reminderMorningMinutes: ReminderSettings.defaultMorningMinutes,
             SettingsKey.reminderEveningMinutes: ReminderSettings.defaultEveningMinutes,
-            SettingsKey.paceWindow: defaultPaceWindow
+            SettingsKey.paceWindow: defaultPaceWindow,
+            SettingsKey.voiceIdentifier: "",
+            SettingsKey.voiceRate: defaultVoiceRate
         ])
     }
 
@@ -204,6 +212,18 @@ enum AppSettings {
         let value = double(SettingsKey.paceWindow, fallback: defaultPaceWindow)
         guard value.isFinite else { return defaultPaceWindow }
         return min(max(value, paceWindowRange.lowerBound), paceWindowRange.upperBound)
+    }
+
+    /// The chosen voice identifier, or "" for the default voice.
+    static var voiceIdentifier: String {
+        return UserDefaults.standard.string(forKey: SettingsKey.voiceIdentifier) ?? ""
+    }
+
+    /// Speech rate, 0.40 to 0.60 (0.5 is normal).
+    static var voiceRate: Double {
+        let value = double(SettingsKey.voiceRate, fallback: defaultVoiceRate)
+        guard value.isFinite else { return defaultVoiceRate }
+        return min(max(value, voiceRateRange.lowerBound), voiceRateRange.upperBound)
     }
 
     static var reminderSettings: ReminderSettings {

@@ -3,6 +3,8 @@ import UserNotifications
 
 @MainActor
 struct SettingsView: View {
+    @Environment(\.scenePhase) private var scenePhase
+
     @AppStorage(SettingsKey.mileTime) private var mileTime: Double = AppSettings.defaultMileTime
     @AppStorage(SettingsKey.goalMile) private var goalMile: Double = AppSettings.defaultGoalMile
     @AppStorage(SettingsKey.announceMiles) private var announceMiles: Bool = true
@@ -21,6 +23,7 @@ struct SettingsView: View {
     @AppStorage(SettingsKey.reminderTimeTrial) private var reminderTimeTrial: Bool = true
     @AppStorage(SettingsKey.reminderWeekly) private var reminderWeekly: Bool = true
     @AppStorage(SettingsKey.paceWindow) private var paceWindow: Double = AppSettings.defaultPaceWindow
+    @AppStorage(SettingsKey.voiceIdentifier) private var voiceIdentifier: String = ""
     @AppStorage(SettingsKey.reminderMorningMinutes) private var morningMinutes: Int = ReminderSettings.defaultMorningMinutes
     @AppStorage(SettingsKey.reminderEveningMinutes) private var eveningMinutes: Int = ReminderSettings.defaultEveningMinutes
 
@@ -32,6 +35,8 @@ struct SettingsView: View {
     @State private var planStart: Date = PlanStore.shared.realStartDate
     @State private var confirmEndTest: Bool = false
     @State private var endTestFailed: Bool = false
+    @State private var showVoicePicker: Bool = false
+    @State private var voiceOptions: [VoiceOption] = []
 
     private var zones: PaceZones {
         return PaceZones.forMile(mileTime)
@@ -73,7 +78,7 @@ struct SettingsView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            StatusLine(left: "milepace", center: "set", right: "v1.7")
+            StatusLine(left: "milepace", center: "set", right: "v1.8")
             ScrollView {
                 VStack(alignment: .leading, spacing: 0) {
                     mileTimes
@@ -389,6 +394,7 @@ struct SettingsView: View {
     private var voiceAndFeedback: some View {
         VStack(alignment: .leading, spacing: 0) {
             SectionHeader("voice and feedback")
+            voiceRow
             ChoiceRow(label: "pace cues every", options: cueOptions, selection: $cueInterval)
             CheckRow(title: "announce each mile", isOn: $announceMiles)
             CheckRow(title: "pace guard cues", isOn: $zoneGuardCues)
@@ -400,6 +406,37 @@ struct SettingsView: View {
             CheckRow(title: "haptics", isOn: $haptics)
             note("mile announcements are skipped during reps and recoveries, and with 1 mi pace cues on.")
         }
+    }
+
+    /// The chosen voice (or "default"); opens the picker. Set is not inside a navigation stack, so the
+    /// picker is a sheet.
+    private var voiceRow: some View {
+        return Button {
+            showVoicePicker = true
+        } label: {
+            ReadoutRow(key: "voice", value: voiceRowValue + " >")
+        }
+        .buttonStyle(InstrumentButtonStyle())
+        .onAppear {
+            voiceOptions = Coach.availableVoices()
+        }
+        .onChange(of: scenePhase) { _, phase in
+            if phase == .active {
+                voiceOptions = Coach.availableVoices()
+            }
+        }
+        .sheet(isPresented: $showVoicePicker, onDismiss: {
+            voiceOptions = Coach.availableVoices()
+        }) {
+            VoicePickerView()
+        }
+    }
+
+    private var voiceRowValue: String {
+        if let chosen = VoiceCatalog.resolve(identifier: voiceIdentifier, available: voiceOptions) {
+            return VoiceCatalog.label(chosen)
+        }
+        return "default"
     }
 
     private var trackOptions: some View {
