@@ -15,6 +15,6 @@ struct MilePaceApp: App {
             ContentView()
                 .environment(tracker)
         }
-        .modelContainer(for: [RunRecord.self, WorkoutRecord.self])
+        .modelContainer(AppModel.shared.container)
     }
 }

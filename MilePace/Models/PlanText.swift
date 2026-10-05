@@ -24,6 +24,21 @@ enum PlanText {
         return text
     }
 
+    /// What the missed card says when no day this week has room.
+    static let noRoomNote = "no room this week. it'll be skipped."
+
+    /// The missed card's main button: "do it today", or "move to wed oct 21" for a later day.
+    /// `label` is the target day's label.
+    static func moveTitle(day: Int, today: Int, label: String) -> String {
+        return day == today ? "do it today" : "move to " + label
+    }
+
+    /// The line under the button when the missed session takes an easy session's day: "replaces thu
+    /// 3 mi easy." `dayLabel` is the easy session's day label ("thu oct 22").
+    static func replacesNote(dayLabel: String, title: String) -> String {
+        return "replaces " + String(dayLabel.prefix(3)) + " " + title + "."
+    }
+
     /// The detail lines under a session title, in display order.
     static func lines(for session: PlanSession, zones: PaceZones, goalMile: Double) -> [String] {
         var lines: [String] = []

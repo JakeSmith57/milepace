@@ -84,9 +84,14 @@ struct RunView: View {
             syncWarmup()
             applyPendingRoute()
         }
-        .onChange(of: isActive) { _, _ in
+        .onChange(of: isActive) { _, active in
             syncWarmup()
-            applyPendingRoute()
+            if active {
+                applyPendingRoute()
+            } else if tracker.phase == .idle {
+                // Left the run tab without starting: forget the session the route opened.
+                store.discardActive()
+            }
         }
         .onChange(of: PlanStore.shared.pendingRoute) { _, _ in
             applyPendingRoute()
@@ -216,6 +221,18 @@ struct RunView: View {
         return RunZoneTarget.allCases.map { Choice($0, $0.title.lowercased()) }
     }
 
+    /// Picking another mode by hand ends the plan session hand-off; plan routes set `runMode`
+    /// directly and do not pass through here.
+    private var modeSelection: Binding<RunMode> {
+        return Binding(get: { runMode },
+                       set: { newMode in
+                           if newMode != runMode {
+                               store.discardActive()
+                           }
+                           runMode = newMode
+                       })
+    }
+
     @ViewBuilder
     private var idleContent: some View {
         if diagnosticsVisible {
@@ -233,7 +250,7 @@ struct RunView: View {
 
     private var idleSetup: some View {
         VStack(alignment: .leading, spacing: 0) {
-            ChoiceRow(label: "mode", options: modeOptions, selection: $runMode)
+            ChoiceRow(label: "mode", options: modeOptions, selection: modeSelection)
             if runMode == .free {
                 freeRunOptions
             } else {
@@ -282,6 +299,9 @@ struct RunView: View {
     private func workoutRow(_ spec: RoadWorkoutSpec) -> some View {
         let selected = spec.name == selectedWorkout.name
         return Button {
+            if spec.name != workoutName {
+                store.discardActive()
+            }
             workoutName = spec.name
         } label: {
             ReadoutRow(key: spec.name,
@@ -635,11 +655,12 @@ struct RunView: View {
                                durationSeconds: item.durationSeconds,
                                averagePace: item.averagePace,
                                splits: item.splits,
-                               notes: notes.isEmpty ? (item.workoutName ?? "") : notes,
+                               notes: notes,
                                route: item.route,
-                               averageCadence: item.averageCadence ?? 0)
+                               averageCadence: item.averageCadence ?? 0,
+                               workoutName: item.workoutName ?? "")
         modelContext.insert(record)
-        store.completeActive()
+        store.completeActive(.run(miles: item.distanceMeters / metersPerMile, workoutName: item.workoutName))
         summary = nil
         tracker.reset()
         syncWarmup()

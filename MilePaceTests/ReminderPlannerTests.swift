@@ -168,12 +168,35 @@ final class ReminderPlannerTests: XCTestCase {
 
     // MARK: Missed sessions
 
-    func testMissedSessionIsAppendedToTheNextMorning() throws {
+    func testMissedKeySessionIsAppendedToTheNextMorning() throws {
+        // Session 1 (the track session, thu oct 15, day 3) is within two days of day 4.
         let specs = try build(today: 4)
         let next = try XCTUnwrap(spec(specs, id: "plan.morning.5"))
-        XCTAssertEqual(next.body, "3 mi, conversational, 9:35\u{2013}10:30 /mi. also missed: tuesday 2 mi easy.")
+        XCTAssertTrue(next.body.hasSuffix(" also missed: thu oct 15 6 x 400 @ R."))
         let later = try XCTUnwrap(spec(specs, id: "plan.morning.8"))
         XCTAssertFalse(later.body.contains("also missed"))
+    }
+
+    func testMissedEasySessionsAreNeverMentioned() throws {
+        // Session 0 is a 2 mi easy run on day 1; it is never offered, so no morning mentions it.
+        for today in [2, 3] {
+            let specs = try build(today: today)
+            for reminder in specs where reminder.id.hasPrefix("plan.morning.") {
+                XCTAssertFalse(reminder.body.contains("also missed"), "day \(today): \(reminder.id)")
+            }
+        }
+    }
+
+    func testMissedSessionsOlderThanTwoDaysAreNotMentioned() throws {
+        let specs = try build(today: 7)
+        let next = try XCTUnwrap(spec(specs, id: "plan.morning.8"))
+        // The track session (day 3) is too old; the long run (day 5, sat oct 17) is still on offer.
+        XCTAssertTrue(next.body.hasSuffix(" also missed: sat oct 17 3 mi long."))
+        XCTAssertFalse(next.body.contains("6 x 400"))
+
+        let tooLate = try build(today: 8)
+        let morning = try XCTUnwrap(spec(tooLate, id: "plan.morning.8"))
+        XCTAssertFalse(morning.body.contains("also missed"))
     }
 
     // MARK: Limits
@@ -223,12 +246,69 @@ final class ReminderPlannerTests: XCTestCase {
 
     func testPushBackMovesTheReminderDays() throws {
         var progress = PlanProgress()
-        progress.shifts.append(PlanShift(fromIndex: 1, days: 2))
+        progress.dayOverrides[PlanProgress.key(1)] = 5
+        progress.dayOverrides[PlanProgress.key(2)] = 7
+        progress.dayOverrides[PlanProgress.key(3)] = 10
+        progress.dayOverrides[PlanProgress.key(4)] = 14
         let specs = try build(progress: progress)
         XCTAssertEqual(days(specs, prefix: "plan.morning."), [1, 5, 7, 10])
         XCTAssertNotNil(spec(specs, id: "plan.tt.13"))
         XCTAssertNil(spec(specs, id: "plan.tt.11"))
-        XCTAssertEqual(days(specs, prefix: "plan.week."), [6])
+        // The Sunday summaries stay on the calendar Sundays, days 6 and 13.
+        XCTAssertEqual(days(specs, prefix: "plan.week."), [6, 13])
+    }
+
+    func testSundaySummaryCountsTheCalendarWeekAndUsesTheMajorityPlanWeek() throws {
+        // Week 1's long run slips to day 7 and week 2's first session to day 10, so the calendar week
+        // of days 7...13 holds session 2 (week 1), session 3 (week 2) and the time trial (week 2).
+        var progress = PlanProgress()
+        progress.dayOverrides[PlanProgress.key(2)] = 7
+        progress.dayOverrides[PlanProgress.key(3)] = 10
+        let specs = try build(progress: progress, logged: [6: 1.0, 7: 3.0, 10: 2.0])
+        let first = try XCTUnwrap(spec(specs, id: "plan.week.6"))
+        XCTAssertEqual(first.title, "week 1: 1.0 / 5 mi")
+        let second = try XCTUnwrap(spec(specs, id: "plan.week.13"))
+        XCTAssertEqual(second.title, "week 2: 5.0 / 6 mi")
+        XCTAssertEqual(second.minutes, 1080)
+    }
+
+    // MARK: Actions
+
+    func testActionsApplyOnlyWhileTheSessionIsStillOnThatDay() throws {
+        let plan = PlanSchedule(plan: try miniPlan(), progress: PlanProgress())
+        XCTAssertTrue(ReminderPlanner.actionApplies(schedule: plan, sessionIndex: 0, day: 1))
+        XCTAssertFalse(ReminderPlanner.actionApplies(schedule: plan, sessionIndex: 0, day: 2))
+        XCTAssertFalse(ReminderPlanner.actionApplies(schedule: plan, sessionIndex: 99, day: 1))
+        XCTAssertFalse(ReminderPlanner.actionApplies(schedule: plan, sessionIndex: -1, day: 1))
+
+        let done = PlanSchedule(plan: try miniPlan(), progress: plan.markingDone(0))
+        XCTAssertFalse(ReminderPlanner.actionApplies(schedule: done, sessionIndex: 0, day: 1))
+        let skipped = PlanSchedule(plan: try miniPlan(), progress: plan.skipping(0))
+        XCTAssertFalse(ReminderPlanner.actionApplies(schedule: skipped, sessionIndex: 0, day: 1))
+
+        // Pushed to day 5: a notification made for day 1 is stale, one made for day 5 is not.
+        var moved = PlanProgress()
+        moved.dayOverrides[PlanProgress.key(0)] = 5
+        let pushed = PlanSchedule(plan: try miniPlan(), progress: moved)
+        XCTAssertFalse(ReminderPlanner.actionApplies(schedule: pushed, sessionIndex: 0, day: 1))
+        XCTAssertTrue(ReminderPlanner.actionApplies(schedule: pushed, sessionIndex: 0, day: 5))
+    }
+
+    func testNotificationIdsTellTheirDay() {
+        XCTAssertEqual(ReminderPlanner.dayOffset(ofIdentifier: "plan.morning.12"), 12)
+        XCTAssertEqual(ReminderPlanner.dayOffset(ofIdentifier: "plan.evening.0"), 0)
+        XCTAssertEqual(ReminderPlanner.dayOffset(ofIdentifier: "plan.tt.251"), 251)
+        XCTAssertEqual(ReminderPlanner.dayOffset(ofIdentifier: "plan.week.6"), 6)
+        XCTAssertEqual(ReminderPlanner.dayOffset(ofIdentifier: "plan.start"), 0)
+        XCTAssertNil(ReminderPlanner.dayOffset(ofIdentifier: "test.reminder"))
+        XCTAssertNil(ReminderPlanner.dayOffset(ofIdentifier: "plan.morning.x"))
+    }
+
+    func testSessionRemindersCarryTheirDay() throws {
+        let specs = try build()
+        let morning = try XCTUnwrap(spec(specs, id: "plan.morning.3"))
+        XCTAssertEqual(morning.dayOffset, 3)
+        XCTAssertEqual(morning.sessionIndex, 1)
     }
 
     // MARK: Shared text and helpers

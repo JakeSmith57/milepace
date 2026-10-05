@@ -78,14 +78,20 @@ struct TodayView: View {
         }
     }
 
-    private func reconcile() {
-        store.reconcile(runDates: runs.map { $0.date },
-                        workoutDates: workouts.map { $0.date })
+    private var loggedRuns: [LoggedRun] {
+        return runs.map { LoggedRun(record: $0) }
     }
 
-    /// Hands the saved runs to the reminders and asks for a fresh schedule.
+    private var loggedWorkouts: [LoggedWorkout] {
+        return workouts.map { LoggedWorkout(record: $0) }
+    }
+
+    private func reconcile() {
+        store.reconcile(runs: loggedRuns, workouts: loggedWorkouts)
+    }
+
+    /// Asks for a fresh reminder schedule; `Reminders` reads the saved runs and workouts itself.
     private func syncReminders(refreshPermission: Bool) {
-        Reminders.shared.updateRuns(runs.map { LoggedRun(date: $0.date, meters: $0.distanceMeters) })
         if refreshPermission {
             Reminders.shared.refreshAuthorization()
         }
@@ -169,36 +175,56 @@ struct TodayView: View {
         }
     }
 
-    private func pushNote(_ schedule: PlanSchedule, _ index: Int) -> String {
-        let days = max(0, today - schedule.dayOffset(index))
-        let pushed = PlanSchedule(plan: schedule.plan,
-                                  progress: schedule.pushingBack(missed: index, today: today))
-        let race = dayLabel(pushed.raceDayOffset)
-        return "doing it today moves the rest of the plan back " + PlanFormat.daysText(days) + ". race moves to " + race + "."
-    }
-
     private func missedCard(_ schedule: PlanSchedule, _ index: Int) -> some View {
         let session = schedule.plan.sessions[index]
+        let result = schedule.pushingBack(missed: index, today: today)
         return VStack(alignment: .leading, spacing: Theme.s2) {
             micro("missed " + dayLabel(schedule.dayOffset(index)))
             Text(session.title)
                 .font(Theme.mono(.body))
                 .fixedSize(horizontal: false, vertical: true)
-            HStack(spacing: Theme.s2) {
-                BracketButton(title: "do it today", style: .plan, minHeight: 48) {
-                    store.doItToday(missed: index)
-                }
-                BracketButton(title: "skip", style: .outlineOnInverted, minHeight: 48) {
-                    store.skip(index)
-                }
-            }
-            .padding(.top, Theme.s1)
-            micro(pushNote(schedule, index))
+            missedButtons(schedule, index, result)
+            missedNote(schedule, result)
         }
         .foregroundStyle(Theme.bg)
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(Theme.s3)
         .background(Theme.fg)
+    }
+
+    /// The day a dry run moved the missed session to; nil when it was skipped or left alone.
+    private func moveTarget(_ schedule: PlanSchedule, _ index: Int, _ result: PushBackResult) -> Int? {
+        guard result.dropped.isEmpty, result.progress != schedule.progress else { return nil }
+        let moved = PlanSchedule(plan: schedule.plan,
+                                 progress: result.progress,
+                                 startWeekday: schedule.startWeekday)
+        return moved.dayOffset(index)
+    }
+
+    private func missedButtons(_ schedule: PlanSchedule, _ index: Int, _ result: PushBackResult) -> some View {
+        return HStack(spacing: Theme.s2) {
+            if let target = moveTarget(schedule, index, result) {
+                BracketButton(title: PlanText.moveTitle(day: target, today: today, label: dayLabel(target)),
+                              style: .plan,
+                              minHeight: 48) {
+                    store.doItToday(missed: index)
+                }
+            }
+            BracketButton(title: "skip", style: .outlineOnInverted, minHeight: 48) {
+                store.skip(index)
+            }
+        }
+        .padding(.top, Theme.s1)
+    }
+
+    @ViewBuilder
+    private func missedNote(_ schedule: PlanSchedule, _ result: PushBackResult) -> some View {
+        if !result.dropped.isEmpty {
+            micro(PlanText.noRoomNote)
+        } else if let replaced = result.replaced {
+            micro(PlanText.replacesNote(dayLabel: dayLabel(schedule.dayOffset(replaced)),
+                                        title: schedule.plan.sessions[replaced].title))
+        }
     }
 
     // MARK: Today
@@ -408,7 +434,7 @@ struct TodayView: View {
                     stripCell(schedule, day: start + column)
                 }
             }
-            weekSummary(schedule, start: start)
+            weekSummary(schedule)
         }
     }
 
@@ -466,17 +492,15 @@ struct TodayView: View {
 
     // MARK: Week summary
 
-    /// Miles from saved runs in the seven days of the strip.
-    private func loggedMiles(start: Int) -> Double {
-        let calendar = PlanCalendar.local
-        var meters = 0.0
-        for run in runs {
-            let day = PlanCalendar.dayOffset(of: run.date, start: store.startDate, calendar: calendar)
-            if day >= start && day < start + 7 {
-                meters += run.distanceMeters
-            }
-        }
-        return meters / metersPerMile
+    /// The calendar Monday-to-Sunday week holding today: its planned week and the miles logged in it
+    /// (runs, plus track workouts estimated with a warm-up and cool-down). Nil before the plan
+    /// starts and after the race.
+    private func thisWeek(_ schedule: PlanSchedule) -> PlanWeekMiles? {
+        guard today >= 0, today <= schedule.raceDayOffset else { return nil }
+        let milesByDay = PlanActivities.milesByDay(runs: loggedRuns,
+                                                   workouts: loggedWorkouts,
+                                                   start: store.startDate)
+        return schedule.weekMiles(containing: today, milesByDay: milesByDay)
     }
 
     private func timeTrialTag(_ week: Int, _ schedule: PlanSchedule) -> String {
@@ -505,10 +529,9 @@ struct TodayView: View {
     }
 
     @ViewBuilder
-    private func weekSummary(_ schedule: PlanSchedule, start: Int) -> some View {
-        let week = schedule.currentWeek(today: today)
-        if let planWeek = schedule.plan.weeks.first(where: { $0.week == week }) {
-            let logged = String(format: "%.1f", loggedMiles(start: start))
+    private func weekSummary(_ schedule: PlanSchedule) -> some View {
+        if let summary = thisWeek(schedule), let planWeek = summary.planWeek {
+            let logged = String(format: "%.1f", summary.logged)
             let tags = weekTags(planWeek, schedule)
             VStack(alignment: .leading, spacing: 2) {
                 Text("this week " + logged + " / " + PlanFormat.miles(planWeek.miles) + " mi")

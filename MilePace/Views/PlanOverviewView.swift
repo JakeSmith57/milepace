@@ -1,6 +1,6 @@
 import SwiftUI
 
-/// All 48 weeks grouped by phase. Tap a week for its sessions.
+/// Every plan week grouped by phase. Tap a week for its sessions.
 @MainActor
 struct PlanOverviewView: View {
     let onClose: () -> Void
@@ -45,7 +45,7 @@ struct PlanOverviewView: View {
                     VStack(alignment: .leading, spacing: 0) {
                         ReadoutRow(key: "race",
                                    value: PlanFormat.dayLabel(offset: schedule.raceDayOffset, start: store.startDate))
-                        ForEach(1...4, id: \.self) { phase in
+                        ForEach(phases(schedule), id: \.self) { phase in
                             phaseSection(schedule, phase)
                         }
                     }
@@ -73,10 +73,22 @@ struct PlanOverviewView: View {
         .padding(.top, Theme.s2)
     }
 
+    /// The phase numbers the plan's weeks use, in order.
+    private func phases(_ schedule: PlanSchedule) -> [Int] {
+        return Array(Set(schedule.plan.weeks.map { $0.phase })).sorted()
+    }
+
     private func phaseTitle(_ phase: Int) -> String {
         let names = PlanOverviewView.phaseNames
         let name = (phase >= 1 && phase <= names.count) ? names[phase - 1] : ""
         return "phase \(phase)  " + name
+    }
+
+    /// "weeks 15-24", read from the plan's weeks; empty when the phase has none.
+    private func phaseRange(_ weeks: [PlanWeek]) -> String {
+        let numbers = weeks.map { $0.week }
+        guard let first = numbers.min(), let last = numbers.max() else { return "" }
+        return first == last ? "week \(first)" : "weeks \(first)-\(last)"
     }
 
     private func phaseSection(_ schedule: PlanSchedule, _ phase: Int) -> some View {
@@ -84,6 +96,10 @@ struct PlanOverviewView: View {
         let current = schedule.currentWeek(today: store.todayOffset)
         return VStack(alignment: .leading, spacing: 0) {
             SectionHeader(phaseTitle(phase))
+            Text(phaseRange(weeks))
+                .font(Theme.mono(.micro))
+                .foregroundStyle(Theme.dim)
+                .padding(.vertical, Theme.s1)
             ForEach(weeks, id: \.week) { week in
                 weekRow(schedule, week, current: current)
             }

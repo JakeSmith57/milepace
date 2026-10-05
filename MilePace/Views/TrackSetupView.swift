@@ -49,14 +49,22 @@ struct TrackSetupView: View {
             }
         }
         .instrumentScreen()
-        .sheet(item: $editing) { item in
+        .sheet(item: $editing, onDismiss: {
+            // Leaving the setup sheet, or finishing from it, ends the plan session hand-off.
+            store.discardActive()
+        }) { item in
             WorkoutEditorView(spec: item.spec)
         }
         .onAppear {
             applyPendingRoute()
         }
-        .onChange(of: isActive) { _, _ in
-            applyPendingRoute()
+        .onChange(of: isActive) { _, active in
+            if active {
+                applyPendingRoute()
+            } else if editing == nil {
+                // Left the track tab without starting: forget the session the route opened.
+                store.discardActive()
+            }
         }
         .onChange(of: PlanStore.shared.pendingRoute) { _, _ in
             applyPendingRoute()
@@ -76,15 +84,21 @@ struct TrackSetupView: View {
         if let index = todayTrackIndex, let schedule = store.schedule {
             PlanBar(text: "today: " + schedule.plan.sessions[index].title, actionTitle: "start") {
                 store.markActive(index)
-                openTrack(schedule.plan.sessions[index].preset)
+                let session = schedule.plan.sessions[index]
+                openTrack(session.preset, targetSeconds: session.targetSeconds)
             }
         }
     }
 
     /// Opens the setup sheet for a preset id, or the custom builder when there is no such preset.
-    private func openTrack(_ presetId: String?) {
+    /// A plan time trial or race brings its own goal time, which replaces the mile preset's target.
+    private func openTrack(_ presetId: String?, targetSeconds: Double? = nil) {
         if let id = presetId, let preset = WorkoutPresets.all.first(where: { $0.id == id }) {
-            editing = SetupItem(spec: preset.spec(zones: zones, goalMile: goalMile))
+            var spec = preset.spec(zones: zones, goalMile: goalMile)
+            if id == PlanSchedule.mileTrialPresetId, let target = targetSeconds, target > 0 {
+                spec.targetRepSeconds = target
+            }
+            editing = SetupItem(spec: spec)
         } else {
             editing = SetupItem(spec: WorkoutPresets.customSpec(zones: zones))
         }
@@ -92,9 +106,9 @@ struct TrackSetupView: View {
 
     private func applyPendingRoute() {
         guard isActive, let route = store.pendingRoute else { return }
-        guard case .track(let presetId) = route else { return }
+        guard case .track(let presetId, let targetSeconds) = route else { return }
         store.pendingRoute = nil
-        openTrack(presetId)
+        openTrack(presetId, targetSeconds: targetSeconds)
     }
 
     /// "today" or "tue oct 20" for a preset scheduled in the next 14 days.

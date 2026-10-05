@@ -4,9 +4,47 @@ import Foundation
 
 struct PlanFile: Codable, Equatable {
     let name: String
+    /// Bumped whenever the plan changes shape; stored progress from another version is discarded.
+    /// Files without a version are version 1.
+    let version: Int
     let startDate: String
+    /// "yyyy-MM-dd" of the race, when the file names one.
+    let raceDate: String?
     let weeks: [PlanWeek]
     let sessions: [PlanSession]
+
+    enum CodingKeys: String, CodingKey {
+        case name
+        case version
+        case startDate
+        case raceDate
+        case weeks
+        case sessions
+    }
+
+    init(name: String,
+         version: Int = 1,
+         startDate: String,
+         raceDate: String? = nil,
+         weeks: [PlanWeek],
+         sessions: [PlanSession]) {
+        self.name = name
+        self.version = version
+        self.startDate = startDate
+        self.raceDate = raceDate
+        self.weeks = weeks
+        self.sessions = sessions
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        name = try container.decode(String.self, forKey: .name)
+        version = try container.decodeIfPresent(Int.self, forKey: .version) ?? 1
+        startDate = try container.decode(String.self, forKey: .startDate)
+        raceDate = try container.decodeIfPresent(String.self, forKey: .raceDate)
+        weeks = try container.decode([PlanWeek].self, forKey: .weeks)
+        sessions = try container.decode([PlanSession].self, forKey: .sessions)
+    }
 }
 
 struct PlanWeek: Codable, Equatable {
@@ -46,6 +84,8 @@ struct PlanSession: Codable, Equatable {
     /// A `RoadWorkoutSpec.name` for road sessions, a `WorkoutPreset.id` for track sessions.
     let preset: String?
     let note: String?
+    /// Goal time in seconds for time trials and the race; nil for every other session.
+    var targetSeconds: Double? = nil
 
     /// True for sessions that belong on the track tab.
     var isTrackSession: Bool {
@@ -84,19 +124,63 @@ enum SessionStatus: String, Codable, Equatable {
     case skipped
 }
 
-/// "From session `fromIndex` on, everything moves `days` later."
+/// "From session `fromIndex` on, everything moves `days` later." Only the v1.5 model used this; the
+/// shifts are still decoded so old saved progress parses, but nothing reads them any more.
 struct PlanShift: Codable, Equatable {
     let fromIndex: Int
     let days: Int
 }
 
 struct PlanProgress: Codable, Equatable {
+    /// Decoded from v1.5 progress and ignored.
     var shifts: [PlanShift] = []
     /// Keyed by the session index as a string, so the JSON stays a plain object.
     var statuses: [String: SessionStatus] = [:]
+    /// Session index (as a string) to an absolute day offset from the plan start. A session with no
+    /// entry is on its planned day.
+    var dayOverrides: [String: Int] = [:]
+    /// `PlanFile.version` this progress belongs to.
+    var planVersion: Int = 1
+
+    enum CodingKeys: String, CodingKey {
+        case shifts
+        case statuses
+        case dayOverrides
+        case planVersion
+    }
+
+    init(shifts: [PlanShift] = [],
+         statuses: [String: SessionStatus] = [:],
+         dayOverrides: [String: Int] = [:],
+         planVersion: Int = 1) {
+        self.shifts = shifts
+        self.statuses = statuses
+        self.dayOverrides = dayOverrides
+        self.planVersion = planVersion
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        shifts = try container.decodeIfPresent([PlanShift].self, forKey: .shifts) ?? []
+        statuses = try container.decodeIfPresent([String: SessionStatus].self, forKey: .statuses) ?? [:]
+        dayOverrides = try container.decodeIfPresent([String: Int].self, forKey: .dayOverrides) ?? [:]
+        planVersion = try container.decodeIfPresent(Int.self, forKey: .planVersion) ?? 1
+    }
 
     static func key(_ index: Int) -> String {
         return String(index)
+    }
+
+    /// Progress saved by an earlier run of the app, or a fresh one for `planVersion` when there is
+    /// nothing saved, it does not parse, or it belongs to a different plan version.
+    static func restored(from data: Data?, planVersion: Int) -> PlanProgress {
+        let fresh = PlanProgress(planVersion: planVersion)
+        guard let data = data,
+              let decoded = try? JSONDecoder().decode(PlanProgress.self, from: data),
+              decoded.planVersion == planVersion else {
+            return fresh
+        }
+        return decoded
     }
 }
 
@@ -106,7 +190,7 @@ struct PlanProgress: Codable, Equatable {
 enum PlanRoute: Equatable {
     case freeRun(zone: RunZoneTarget)
     case roadWorkout(name: String)
-    case track(presetId: String?)
+    case track(presetId: String?, targetSeconds: Double?)
 
     static func route(for session: PlanSession) -> PlanRoute {
         switch session.kind {
@@ -118,7 +202,7 @@ enum PlanRoute: Equatable {
             }
             return .freeRun(zone: .threshold)
         case .track, .timeTrial, .race:
-            return .track(presetId: session.preset)
+            return .track(presetId: session.preset, targetSeconds: session.targetSeconds)
         case .other:
             return .freeRun(zone: .off)
         }
@@ -143,20 +227,60 @@ struct StripCell: Equatable {
 
 // MARK: - Schedule
 
+/// What `PlanSchedule.pushingBack` decided.
+struct PushBackResult: Equatable {
+    /// Progress with the missed session moved (or skipped) and the easy session it replaced skipped.
+    var progress: PlanProgress
+    /// The easy session the missed one took the day of (marked skipped in `progress`), if any.
+    var replaced: Int?
+    /// The missed session when no day this week had room for it (marked skipped in `progress`).
+    var dropped: [Int]
+}
+
+/// The calendar Monday-to-Sunday week around a day: the plan week most of its sessions belong to
+/// and the miles logged in it.
+struct PlanWeekMiles: Equatable {
+    let planWeek: PlanWeek?
+    let logged: Double
+}
+
 /// The plan plus the runner's progress. Days are offsets from the plan start (start = 0).
 struct PlanSchedule {
+    /// Preset id of the mile time trial, which time trials and the race point at.
+    static let mileTrialPresetId = "mile-tt"
+    /// A missed key session stays on offer for this many days; older ones are skipped. Missed easy
+    /// sessions are never offered and are skipped once their day has passed.
+    static let missedWindowDays = 2
+
     let plan: PlanFile
     let progress: PlanProgress
+    /// Weekday of day offset 0 on the calendar, Monday = 1 ... Sunday = 7. The bundled plan starts on
+    /// a Monday, so its weekday numbers match the calendar.
+    var startWeekday: Int = 1
 
-    /// Days from plan start for session `index`, including every shift that applies to it.
-    func dayOffset(_ index: Int) -> Int {
+    /// Days from plan start for session `index` before any push back.
+    func baseOffset(_ index: Int) -> Int {
         guard plan.sessions.indices.contains(index) else { return 0 }
         let session = plan.sessions[index]
-        var offset = (session.week - 1) * 7 + (session.weekday - 1)
-        for shift in progress.shifts where shift.fromIndex <= index {
-            offset += shift.days
-        }
-        return offset
+        return (session.week - 1) * 7 + (session.weekday - 1)
+    }
+
+    /// Days from plan start for session `index`: its override when it was pushed back, else its plan day.
+    func dayOffset(_ index: Int) -> Int {
+        guard plan.sessions.indices.contains(index) else { return 0 }
+        return progress.dayOverrides[PlanProgress.key(index)] ?? baseOffset(index)
+    }
+
+    /// Calendar weekday of day offset `day`, Monday = 1 ... Sunday = 7.
+    func weekdayNumber(ofDay day: Int) -> Int {
+        let start = min(max(startWeekday, 1), 7)
+        let shifted = (start - 1 + day) % 7
+        return (shifted + 7) % 7 + 1
+    }
+
+    /// The Monday on or before `day`.
+    func calendarWeekStart(containing day: Int) -> Int {
+        return day - (weekdayNumber(ofDay: day) - 1)
     }
 
     func indices(onDay day: Int) -> [Int] {
@@ -167,9 +291,18 @@ struct PlanSchedule {
         return progress.statuses[PlanProgress.key(index)]
     }
 
-    /// Oldest session before `today` with no status.
+    /// Oldest key session (anything but an easy run) from the last `missedWindowDays` days before
+    /// `today` with no status. Missed easy sessions are never offered.
     func firstMissed(today: Int) -> Int? {
-        return plan.sessions.indices.first(where: { dayOffset($0) < today && status($0) == nil })
+        let oldest = today - PlanSchedule.missedWindowDays
+        for index in plan.sessions.indices {
+            let day = dayOffset(index)
+            if day < today && day >= oldest && status(index) == nil
+                && plan.sessions[index].kind != .easy {
+                return index
+            }
+        }
+        return nil
     }
 
     /// Sessions scheduled for `today` with no status.
@@ -182,9 +315,14 @@ struct PlanSchedule {
         return plan.sessions.indices.first(where: { dayOffset($0) > today && status($0) == nil })
     }
 
+    /// Index of the race session, if the plan has one.
+    var raceIndex: Int? {
+        return plan.sessions.lastIndex(where: { $0.kind == .race })
+    }
+
     /// Day offset of the race session (the last session when the file has no race).
     var raceDayOffset: Int {
-        if let race = plan.sessions.lastIndex(where: { $0.kind == .race }) {
+        if let race = raceIndex {
             return dayOffset(race)
         }
         if let last = plan.sessions.indices.last {
@@ -205,19 +343,50 @@ struct PlanSchedule {
         return total
     }
 
-    /// First day offset of the seven-day strip that holds `today`.
+    /// First day offset of the Monday-to-Sunday strip that holds `today` (the race day at the latest).
     func stripStart(today: Int) -> Int {
         if today < 0 { return 0 }
-        let capped = min(today, raceDayOffset)
-        return (capped / 7) * 7
+        return calendarWeekStart(containing: min(today, raceDayOffset))
     }
 
-    /// Day offset on which plan week `week` starts, following any shifts.
+    /// Monday of the calendar week holding the first session of plan week `week`.
     func startOffset(ofWeek week: Int) -> Int {
         if let index = plan.sessions.firstIndex(where: { $0.week == week }) {
-            return dayOffset(index) - (plan.sessions[index].weekday - 1)
+            return calendarWeekStart(containing: dayOffset(index))
         }
         return (week - 1) * 7
+    }
+
+    /// The plan week that most of the sessions scheduled in the calendar week starting on `monday`
+    /// belong to (the earlier week on a tie); nil when no session is scheduled in it.
+    func plannedWeek(inCalendarWeekStarting monday: Int) -> PlanWeek? {
+        var counts: [Int: Int] = [:]
+        for index in plan.sessions.indices {
+            let day = dayOffset(index)
+            if day >= monday && day <= monday + 6 {
+                counts[plan.sessions[index].week, default: 0] += 1
+            }
+        }
+        var best: Int? = nil
+        var bestCount = 0
+        for (week, count) in counts {
+            if count > bestCount || (count == bestCount && week < (best ?? Int.max)) {
+                best = week
+                bestCount = count
+            }
+        }
+        guard let chosen = best else { return nil }
+        return plan.weeks.first(where: { $0.week == chosen })
+    }
+
+    /// The calendar week holding `day`: its planned week and the miles in `milesByDay` over its seven days.
+    func weekMiles(containing day: Int, milesByDay: [Int: Double]) -> PlanWeekMiles {
+        let monday = calendarWeekStart(containing: day)
+        var logged = 0.0
+        for offset in monday...(monday + 6) {
+            logged += milesByDay[offset] ?? 0
+        }
+        return PlanWeekMiles(planWeek: plannedWeek(inCalendarWeekStarting: monday), logged: logged)
     }
 
     /// Nearest unfinished track session using preset `id` from `today` through `today + days`.
@@ -257,16 +426,107 @@ struct PlanSchedule {
         return StripCell(state: .planned, label: label)
     }
 
-    /// Progress after choosing "do it today" for a missed session: that session and every later one
-    /// move back by the days between its scheduled day and today.
-    func pushingBack(missed: Int, today: Int) -> PlanProgress {
-        guard plan.sessions.indices.contains(missed) else { return progress }
-        let days = today - dayOffset(missed)
-        guard days > 0 else { return progress }
-        var updated = progress
-        updated.shifts.append(PlanShift(fromIndex: missed, days: days))
-        return updated
+    // MARK: Push back
+
+    /// Road, track and time trial sessions are the hard ones: two of them never sit on neighbouring
+    /// days. Long runs and the race do not count.
+    static func isHard(_ kind: SessionKind) -> Bool {
+        switch kind {
+        case .road, .track, .timeTrial: return true
+        case .easy, .long, .race, .other: return false
+        }
     }
+
+    private func setDay(_ index: Int, _ day: Int, in target: inout PlanProgress) {
+        let key = PlanProgress.key(index)
+        if day == baseOffset(index) {
+            target.dayOverrides.removeValue(forKey: key)
+        } else {
+            target.dayOverrides[key] = day
+        }
+    }
+
+    /// Whether another hard session that is scheduled and not skipped sits on the day before or the
+    /// day after `day`. `ignoring` is the session being placed.
+    private func hasHardNeighbour(of day: Int, ignoring: Int) -> Bool {
+        for index in plan.sessions.indices where index != ignoring {
+            guard PlanSchedule.isHard(plan.sessions[index].kind),
+                  status(index) != SessionStatus.skipped else { continue }
+            let other = dayOffset(index)
+            if other == day - 1 || other == day + 1 {
+                return true
+            }
+        }
+        return false
+    }
+
+    /// Whether the missed session `missed` can take `day`: every session scheduled there is either
+    /// skipped or an easy session with no status (it gets replaced), and a hard session does not end
+    /// up next to another hard one.
+    private func canTake(day: Int, missed: Int) -> Bool {
+        for index in indices(onDay: day) where index != missed {
+            switch status(index) {
+            case .some(.done):
+                return false
+            case .some(.skipped):
+                continue
+            case .none:
+                if plan.sessions[index].kind != .easy { return false }
+            }
+        }
+        if PlanSchedule.isHard(plan.sessions[missed].kind) && hasHardNeighbour(of: day, ignoring: missed) {
+            return false
+        }
+        return true
+    }
+
+    /// "Do it today" for the missed key session `missed`: it takes the first day from `today` to the
+    /// end of the calendar week (Monday to Sunday) that holds an easy session or nothing, skipping
+    /// Wednesdays, Sundays, the race day and the day before it, and keeping hard sessions apart. The
+    /// easy session on that day is skipped (`replaced`); nothing else moves. With no such day the
+    /// missed session is skipped (`dropped`). Easy sessions, the race, finished sessions and sessions
+    /// that are not yet missed come back unchanged.
+    func pushingBack(missed: Int, today: Int) -> PushBackResult {
+        let unchanged = PushBackResult(progress: progress, replaced: nil, dropped: [])
+        guard plan.sessions.indices.contains(missed),
+              status(missed) == nil,
+              today > dayOffset(missed) else {
+            return unchanged
+        }
+        switch plan.sessions[missed].kind {
+        case .easy, .race:
+            return unchanged
+        case .long, .road, .track, .timeTrial, .other:
+            break
+        }
+
+        var cutoff = Int.max
+        if let race = raceIndex {
+            cutoff = dayOffset(race) - 1
+        }
+        let lastDay = calendarWeekStart(containing: today) + 6
+
+        var updated = progress
+        var day = today
+        while day <= lastDay {
+            let weekday = weekdayNumber(ofDay: day)
+            if weekday != 3 && weekday != 7 && day < cutoff && canTake(day: day, missed: missed) {
+                var replaced: Int? = nil
+                for index in indices(onDay: day) where index != missed && status(index) == nil {
+                    updated.statuses[PlanProgress.key(index)] = .skipped
+                    replaced = index
+                }
+                setDay(missed, day, in: &updated)
+                return PushBackResult(progress: updated, replaced: replaced, dropped: [])
+            }
+            day += 1
+        }
+
+        updated.statuses[PlanProgress.key(missed)] = .skipped
+        return PushBackResult(progress: updated, replaced: nil, dropped: [missed])
+    }
+
+    // MARK: Status changes
 
     func skipping(_ index: Int) -> PlanProgress {
         guard plan.sessions.indices.contains(index) else { return progress }
@@ -282,16 +542,94 @@ struct PlanSchedule {
         return updated
     }
 
-    /// Marks done every session with no status whose scheduled day has a logged activity.
-    func reconciled(activityDays: Set<Int>) -> PlanProgress {
+    /// Skips every session with no status that is no longer on offer: easy sessions once their day
+    /// has passed, everything else once its day is more than `missedWindowDays` before `today`.
+    func skippingOld(today: Int) -> PlanProgress {
         var updated = progress
-        for index in plan.sessions.indices {
-            guard status(index) == nil else { continue }
-            if activityDays.contains(dayOffset(index)) {
-                updated.statuses[PlanProgress.key(index)] = .done
+        for index in plan.sessions.indices where status(index) == nil {
+            let oldest = plan.sessions[index].kind == .easy ? today : today - PlanSchedule.missedWindowDays
+            if dayOffset(index) < oldest {
+                updated.statuses[PlanProgress.key(index)] = .skipped
             }
         }
         return updated
+    }
+
+    // MARK: Matching activities
+
+    /// The track preset a time trial points at (the mile time trial when it names none) and the name
+    /// a saved workout of that preset carries.
+    private static func trialPresetName(for session: PlanSession) -> String? {
+        let id = session.preset ?? PlanSchedule.mileTrialPresetId
+        return WorkoutPresets.all.first(where: { $0.id == id })?.name
+    }
+
+    /// Whether a saved activity of `kind` is what `session` asks for.
+    static func matches(_ kind: ActivityDay.Kind, session: PlanSession) -> Bool {
+        switch kind {
+        case .run(let miles, let workoutName):
+            let named = (workoutName ?? "").isEmpty ? nil : workoutName
+            switch session.kind {
+            case .easy, .long:
+                if named != nil { return false }
+                return miles >= 0.5 * (session.miles ?? 0)
+            case .road:
+                guard let preset = session.preset else { return true }
+                return named == preset
+            case .other:
+                return true
+            case .track, .timeTrial, .race:
+                return false
+            }
+        case .track(let presetName):
+            switch session.kind {
+            case .track, .race:
+                return true
+            case .timeTrial:
+                guard let expected = trialPresetName(for: session) else { return true }
+                return presetName == expected
+            case .easy, .long, .road, .other:
+                return false
+            }
+        }
+    }
+
+    /// Whether an activity of `kind` belongs on the screen that runs `session`: runs for easy, long,
+    /// road and other sessions, track workouts for track, time trial and race sessions.
+    static func isSameFamily(_ kind: ActivityDay.Kind, session: PlanSession) -> Bool {
+        switch kind {
+        case .run: return session.isRunTabSession
+        case .track: return session.isTrackSession
+        }
+    }
+
+    /// Marks done every session with no status that has a matching activity on its scheduled day.
+    /// An activity satisfies at most one session.
+    func reconciled(activities: [ActivityDay]) -> PlanProgress {
+        var updated = progress
+        var used = Set<Int>()
+        for index in plan.sessions.indices {
+            guard status(index) == nil else { continue }
+            let day = dayOffset(index)
+            let session = plan.sessions[index]
+            for position in activities.indices {
+                guard !used.contains(position), activities[position].day == day else { continue }
+                guard PlanSchedule.matches(activities[position].kind, session: session) else { continue }
+                used.insert(position)
+                updated.statuses[PlanProgress.key(index)] = .done
+                break
+            }
+        }
+        return updated
+    }
+
+    /// Matches activities first, then skips easy sessions whose day has passed and other sessions missed
+    /// more than two days ago.
+    func reconciled(activities: [ActivityDay], today: Int) -> PlanProgress {
+        let matched = PlanSchedule(plan: plan,
+                                   progress: reconciled(activities: activities),
+                                   startWeekday: startWeekday)
+        return matched.skippingOld(today: today)
     }
 }
 
@@ -317,9 +655,11 @@ enum PlanLoader {
 /// Date and day-offset conversion: Gregorian, start of day, local time zone. Day counts always go
 /// through `Calendar.dateComponents` between start-of-day values, so DST changes cannot shift them.
 enum PlanCalendar {
+    /// Gregorian in the time zone the phone is in right now (it follows travel, unlike a time zone
+    /// captured at launch).
     static var local: Calendar {
         var calendar = Calendar(identifier: .gregorian)
-        calendar.timeZone = TimeZone.current
+        calendar.timeZone = TimeZone.autoupdatingCurrent
         return calendar
     }
 
@@ -332,6 +672,22 @@ enum PlanCalendar {
     static func date(forOffset offset: Int, start: Date, calendar: Calendar = PlanCalendar.local) -> Date {
         let from = calendar.startOfDay(for: start)
         return calendar.date(byAdding: .day, value: offset, to: from) ?? from
+    }
+
+    /// Hours after midnight at which a day starts for activities: a run that starts at 00:30 counts
+    /// for the day before.
+    static let activityDayStartHour = 3
+
+    /// Day offset of an activity that started at `date`.
+    static func activityDay(of date: Date, start: Date, calendar: Calendar = PlanCalendar.local) -> Int {
+        let shifted = calendar.date(byAdding: .hour, value: -activityDayStartHour, to: date) ?? date
+        return dayOffset(of: shifted, start: start, calendar: calendar)
+    }
+
+    /// Weekday of `date`, Monday = 1 ... Sunday = 7.
+    static func mondayWeekday(of date: Date, calendar: Calendar = PlanCalendar.local) -> Int {
+        let sundayFirst = calendar.component(.weekday, from: date)
+        return (sundayFirst + 5) % 7 + 1
     }
 
     /// "2026-10-12" as the start of that day; nil for anything that is not a real date.

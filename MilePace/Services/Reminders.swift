@@ -2,12 +2,6 @@ import Foundation
 import Observation
 import UserNotifications
 
-/// A saved run, reduced to what the weekly summary needs.
-struct LoggedRun {
-    let date: Date
-    let meters: Double
-}
-
 /// Schedules the plan's local notifications and handles taps and actions on them. The window is
 /// rebuilt whenever anything it depends on changes, so there is never a long queue to go stale.
 @Observable
@@ -22,8 +16,9 @@ final class Reminders: NSObject, UNUserNotificationCenterDelegate {
     private(set) var pendingCount: Int = 0
 
     @ObservationIgnored private let center: UNUserNotificationCenter
-    @ObservationIgnored private var runs: [LoggedRun] = []
     @ObservationIgnored private var debounce: Task<Void, Never>?
+    /// Set by a progress change; the next rebuild then also clears delivered session notifications.
+    @ObservationIgnored private var clearDeliveredPending: Bool = false
 
     /// Calls within this many seconds of each other become one rebuild.
     static let debounceSeconds: Double = 1.0
@@ -85,13 +80,13 @@ final class Reminders: NSObject, UNUserNotificationCenterDelegate {
 
     // MARK: Scheduling
 
-    /// Saved runs, newest or oldest first. Call whenever the list changes.
-    func updateRuns(_ items: [LoggedRun]) {
-        runs = items
-    }
-
-    /// Rebuilds the reminder window after a short pause; repeated calls restart the pause.
-    func reschedule() {
+    /// Rebuilds the reminder window after a short pause; repeated calls restart the pause. Pass
+    /// `clearDelivered` after a progress change so notifications already in the notification center
+    /// for today or later, which may now be wrong, are removed.
+    func reschedule(clearDelivered: Bool = false) {
+        if clearDelivered {
+            clearDeliveredPending = true
+        }
         debounce?.cancel()
         debounce = Task {
             try? await Task.sleep(nanoseconds: UInt64(Reminders.debounceSeconds * 1_000_000_000))
@@ -100,30 +95,21 @@ final class Reminders: NSObject, UNUserNotificationCenterDelegate {
         }
     }
 
-    private func loggedMilesByDay(start: Date) -> [Int: Double] {
-        let calendar = PlanCalendar.local
-        var meters: [Int: Double] = [:]
-        for run in runs {
-            let day = PlanCalendar.dayOffset(of: run.date, start: start, calendar: calendar)
-            meters[day, default: 0] += run.meters
-        }
-        return meters.mapValues { $0 / metersPerMile }
-    }
-
-    private func currentSpecs() -> [ReminderSpec] {
+    private func currentSpecs(runs: [LoggedRun], workouts: [LoggedWorkout]) -> [ReminderSpec] {
         let store = PlanStore.shared
-        store.refresh()
         guard let schedule = store.schedule else { return [] }
+        let start = store.startDate
         let parts = PlanCalendar.local.dateComponents([.hour, .minute], from: Date())
         let nowMinutes = (parts.hour ?? 0) * 60 + (parts.minute ?? 0)
+        let milesByDay = PlanActivities.milesByDay(runs: runs, workouts: workouts, start: start)
         return ReminderPlanner.build(schedule: schedule,
                                      todayOffset: store.todayOffset,
                                      nowMinutes: nowMinutes,
                                      settings: AppSettings.reminderSettings,
-                                     loggedMilesByDay: loggedMilesByDay(start: store.startDate),
+                                     loggedMilesByDay: milesByDay,
                                      zones: AppSettings.zones,
                                      goalMile: AppSettings.goalMile,
-                                     startDate: store.startDate)
+                                     startDate: start)
     }
 
     private func makeRequest(for spec: ReminderSpec, start: Date) -> UNNotificationRequest {
@@ -135,7 +121,7 @@ final class Reminders: NSObject, UNUserNotificationCenterDelegate {
             content.categoryIdentifier = category
         }
         if let index = spec.sessionIndex {
-            content.userInfo = ["sessionIndex": index]
+            content.userInfo = ["sessionIndex": index, "day": spec.dayOffset]
         }
         let calendar = PlanCalendar.local
         let day = PlanCalendar.date(forOffset: spec.dayOffset, start: start, calendar: calendar)
@@ -146,20 +132,48 @@ final class Reminders: NSObject, UNUserNotificationCenterDelegate {
         return UNNotificationRequest(identifier: spec.id, content: content, trigger: trigger)
     }
 
-    /// Replaces every pending `plan.` notification with the current window.
+    /// Removes delivered `plan.` notifications for `today` or later, such as a morning note for a
+    /// session that has since been done, skipped or moved.
+    private func removeDelivered(from today: Int) async {
+        let delivered = await center.deliveredNotifications()
+        var ids: [String] = []
+        for notification in delivered {
+            let id = notification.request.identifier
+            if let day = ReminderPlanner.dayOffset(ofIdentifier: id), day >= today {
+                ids.append(id)
+            }
+        }
+        if !ids.isEmpty {
+            center.removeDeliveredNotifications(withIdentifiers: ids)
+        }
+    }
+
+    /// Replaces every pending `plan.` notification with the current window. Runs and workouts are
+    /// read here from the shared store, so this works without any screen (a notification action can
+    /// launch the app in the background).
     private func rebuild() async {
         await loadAuthorization()
+        let activity = AppModel.shared.loadActivity()
+        let store = PlanStore.shared
+        store.refresh()
+        store.reconcile(runs: activity.runs, workouts: activity.workouts)
+
+        if clearDeliveredPending {
+            clearDeliveredPending = false
+            await removeDelivered(from: store.todayOffset)
+        }
+
         let pending = await center.pendingNotificationRequests()
         let oldIds = pending.map { $0.identifier }.filter { $0.hasPrefix(ReminderPlanner.idPrefix) }
         center.removePendingNotificationRequests(withIdentifiers: oldIds)
 
-        guard isAuthorized, PlanStore.shared.plan != nil else {
+        guard isAuthorized, store.plan != nil else {
             pendingCount = 0
             return
         }
-        let specs = currentSpecs()
+        let specs = currentSpecs(runs: activity.runs, workouts: activity.workouts)
         if Task.isCancelled { return }
-        let start = PlanStore.shared.startDate
+        let start = store.startDate
         for spec in specs {
             _ = try? await center.add(makeRequest(for: spec, start: start))
         }
@@ -193,19 +207,27 @@ final class Reminders: NSObject, UNUserNotificationCenterDelegate {
 
     // MARK: Responses
 
-    private func handle(action: String, sessionIndex: Int?) async {
-        if action == ReminderPlanner.markDoneAction {
-            if let index = sessionIndex {
-                PlanStore.shared.markDone(index)
-            }
-        } else if action == ReminderPlanner.skipAction {
-            if let index = sessionIndex {
-                PlanStore.shared.skip(index)
+    /// "Mark done" and "skip" only act when the session is still scheduled for the day the
+    /// notification was made for and has no status; otherwise the notification is stale.
+    private func handle(action: String, sessionIndex: Int?, day: Int?) async {
+        let store = PlanStore.shared
+        let isSessionAction = action == ReminderPlanner.markDoneAction || action == ReminderPlanner.skipAction
+        if isSessionAction {
+            store.refresh()
+            if let index = sessionIndex,
+               let day = day,
+               let schedule = store.schedule,
+               ReminderPlanner.actionApplies(schedule: schedule, sessionIndex: index, day: day) {
+                if action == ReminderPlanner.markDoneAction {
+                    store.markDone(index)
+                } else {
+                    store.skip(index)
+                }
             }
         } else if action == UNNotificationDefaultActionIdentifier {
-            PlanStore.shared.requestedTab = .today
+            store.requestedTab = .today
         }
-        if action == ReminderPlanner.markDoneAction || action == ReminderPlanner.skipAction {
+        if isSessionAction {
             await rebuild()
         }
     }
@@ -227,9 +249,11 @@ final class Reminders: NSObject, UNUserNotificationCenterDelegate {
                                             didReceive response: UNNotificationResponse,
                                             withCompletionHandler completionHandler: @escaping () -> Void) {
         let action = response.actionIdentifier
-        let index = response.notification.request.content.userInfo["sessionIndex"] as? Int
+        let info = response.notification.request.content.userInfo
+        let index = info["sessionIndex"] as? Int
+        let day = info["day"] as? Int
         Task { @MainActor in
-            await self.handle(action: action, sessionIndex: index)
+            await self.handle(action: action, sessionIndex: index, day: day)
             completionHandler()
         }
     }

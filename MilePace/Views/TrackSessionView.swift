@@ -343,13 +343,13 @@ struct TrackSessionView: View {
     }
 
     private func saveWorkout() {
-        let record = WorkoutRecord(date: Date(),
+        let record = WorkoutRecord(date: sessionStart ?? Date(),
                                    name: workout.spec.name,
                                    spec: workout.spec,
                                    repTimes: workout.repTimes,
                                    lapSplits: workout.lapSplits)
         modelContext.insert(record)
-        PlanStore.shared.completeActive()
+        PlanStore.shared.completeActive(.track(presetName: workout.spec.name))
         if let offer = timeTrialOffer() {
             paceOffer = offer
         } else {

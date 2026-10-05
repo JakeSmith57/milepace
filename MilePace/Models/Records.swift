@@ -15,6 +15,8 @@ final class RunRecord {
     var routeData: Data = Data()
     /// Average cadence in steps per minute; 0 when unknown.
     var averageCadence: Double = 0
+    /// Name of the guided road workout this run was; empty for a free run or a manual entry.
+    var workoutName: String = ""
 
     init(date: Date,
          distanceMeters: Double,
@@ -23,7 +25,8 @@ final class RunRecord {
          splits: [Double] = [],
          notes: String = "",
          route: [RoutePoint] = [],
-         averageCadence: Double = 0) {
+         averageCadence: Double = 0,
+         workoutName: String = "") {
         self.date = date
         self.distanceMeters = distanceMeters
         self.durationSeconds = durationSeconds
@@ -32,6 +35,7 @@ final class RunRecord {
         self.notes = notes
         self.routeData = route.isEmpty ? Data() : ((try? JSONEncoder().encode(route)) ?? Data())
         self.averageCadence = averageCadence
+        self.workoutName = workoutName
     }
 
     var route: [RoutePoint] {
@@ -42,6 +46,7 @@ final class RunRecord {
 
 @Model
 final class WorkoutRecord {
+    /// When the workout started.
     var date: Date
     var name: String
     /// JSON-encoded `WorkoutSpec`.

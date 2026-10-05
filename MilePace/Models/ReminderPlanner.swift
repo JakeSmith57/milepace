@@ -183,6 +183,8 @@ enum ReminderPlanner {
         return specs
     }
 
+    /// The Sunday summary: always on the calendar Sunday at 18:00. It counts the Monday-to-Sunday
+    /// week that ends on that Sunday, against the plan week most of that week's sessions belong to.
     private static func weeklySpecs(schedule: PlanSchedule,
                                     window: ClosedRange<Int>,
                                     settings: ReminderSettings,
@@ -190,16 +192,11 @@ enum ReminderPlanner {
                                     startDate: Date) -> [ReminderSpec] {
         guard settings.weekly else { return [] }
         var specs: [ReminderSpec] = []
-        for planWeek in schedule.plan.weeks {
-            guard let next = schedule.plan.weeks.first(where: { $0.week == planWeek.week + 1 }) else { continue }
-            let first = schedule.startOffset(ofWeek: planWeek.week)
-            let sunday = first + 6
-            guard window.contains(sunday) else { continue }
-            var logged = 0.0
-            for day in first...sunday {
-                logged += loggedMilesByDay[day] ?? 0
-            }
-            let loggedText = String(format: "%.1f", logged)
+        for sunday in window where schedule.weekdayNumber(ofDay: sunday) == 7 {
+            let summary = schedule.weekMiles(containing: sunday, milesByDay: loggedMilesByDay)
+            guard let planWeek = summary.planWeek,
+                  let next = schedule.plan.weeks.first(where: { $0.week == planWeek.week + 1 }) else { continue }
+            let loggedText = String(format: "%.1f", summary.logged)
             let plannedText = PlanFormat.miles(planWeek.miles)
             let title = "week \(planWeek.week): \(loggedText) / \(plannedText) mi"
             specs.append(ReminderSpec(id: weeklyPrefix + String(sunday),
@@ -243,7 +240,7 @@ enum ReminderPlanner {
         return label
     }
 
-    /// Adds " also missed: tuesday 2 mi easy." to the first morning reminder when a session was missed.
+    /// Adds " also missed: tue oct 20 2 mi easy." to the first morning reminder when a session was missed.
     private static func appendingMissed(to specs: [ReminderSpec],
                                         schedule: PlanSchedule,
                                         todayOffset: Int,
@@ -252,9 +249,9 @@ enum ReminderPlanner {
               let position = specs.firstIndex(where: { $0.id.hasPrefix(morningPrefix) }) else {
             return specs
         }
-        let date = PlanCalendar.date(forOffset: schedule.dayOffset(missed), start: startDate)
         let session = schedule.plan.sessions[missed]
-        let extra = " also missed: " + PlanFormat.weekdayName(date) + " " + session.title + "."
+        let when = PlanFormat.dayLabel(offset: schedule.dayOffset(missed), start: startDate)
+        let extra = " also missed: " + when + " " + session.title + "."
         let old = specs[position]
         var result = specs
         result[position] = ReminderSpec(id: old.id,
@@ -265,6 +262,22 @@ enum ReminderPlanner {
                                         category: old.category,
                                         sessionIndex: old.sessionIndex)
         return result
+    }
+
+    /// Whether a "mark done" or "skip" tapped on a notification made for `day` should still act: the
+    /// session must still be scheduled for that day and have no status.
+    static func actionApplies(schedule: PlanSchedule, sessionIndex: Int, day: Int) -> Bool {
+        guard schedule.plan.sessions.indices.contains(sessionIndex) else { return false }
+        return schedule.dayOffset(sessionIndex) == day && schedule.status(sessionIndex) == nil
+    }
+
+    /// The plan day a `plan.` notification id stands for: "plan.morning.12" is 12, "plan.start" is
+    /// 0; nil for anything else.
+    static func dayOffset(ofIdentifier identifier: String) -> Int? {
+        guard identifier.hasPrefix(idPrefix) else { return nil }
+        if identifier == startId { return 0 }
+        guard let dot = identifier.lastIndex(of: ".") else { return nil }
+        return Int(identifier[identifier.index(after: dot)...])
     }
 
     private static func unique(_ specs: [ReminderSpec]) -> [ReminderSpec] {

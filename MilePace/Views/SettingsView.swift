@@ -170,9 +170,20 @@ struct SettingsView: View {
         VStack(alignment: .leading, spacing: 0) {
             SectionHeader("plan")
             planStartRow
-            note("plan weeks start on this date. pick a monday.")
+            raceRow
+            note("plan weeks run monday to sunday. pick a monday so they match the calendar.")
             resetControls
                 .padding(.top, Theme.s3)
+        }
+    }
+
+    /// The race day the plan currently ends on, from the plan file and the start date above.
+    @ViewBuilder
+    private var raceRow: some View {
+        if let schedule = PlanStore.shared.schedule {
+            ReadoutRow(key: "race",
+                       value: PlanFormat.dayLabel(offset: schedule.raceDayOffset,
+                                                  start: PlanStore.shared.startDate))
         }
     }
 
