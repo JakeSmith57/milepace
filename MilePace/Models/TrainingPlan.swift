@@ -87,7 +87,7 @@ struct PlanSession: Codable, Equatable {
     /// Goal time in seconds for time trials and the race; nil for every other session.
     var targetSeconds: Double? = nil
 
-    /// True for sessions that belong on the track tab.
+    /// True for sessions that belong on the track screen.
     var isTrackSession: Bool {
         switch kind {
         case .track, .timeTrial, .race: return true
@@ -95,7 +95,7 @@ struct PlanSession: Codable, Equatable {
         }
     }
 
-    /// True for sessions that belong on the run tab.
+    /// True for sessions that belong on the run screen.
     var isRunTabSession: Bool {
         switch kind {
         case .easy, .long, .road, .other: return true

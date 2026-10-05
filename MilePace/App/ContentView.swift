@@ -1,43 +1,41 @@
 import SwiftUI
-import UIKit
 
-/// Five screens kept alive in a ZStack, with the instrument tab strip along the bottom.
+/// Five screens kept alive in a ZStack. Today is the home screen; the other four open on top of it
+/// and each has a `[ today ]` button back (see `PlanStore.open` and `PlanStore.goHome`).
+@MainActor
 struct ContentView: View {
     @AppStorage(SettingsKey.displayMode) private var displayMode: DisplayMode = .system
 
     @State private var selection: AppTab = .today
-    @State private var keyboardVisible: Bool = false
 
     var body: some View {
-        VStack(spacing: 0) {
-            screens
-            if !keyboardVisible {
-                TabStrip(selection: $selection)
+        screens
+            .instrumentScreen()
+            .preferredColorScheme(displayMode.colorScheme)
+            .onChange(of: PlanStore.shared.pendingRoute) { _, route in
+                if let route = route {
+                    show(tab(for: route))
+                }
             }
-        }
-        .instrumentScreen()
-        .preferredColorScheme(displayMode.colorScheme)
-        .onChange(of: PlanStore.shared.pendingRoute) { _, route in
-            if let route = route {
-                selection = tab(for: route)
+            .onChange(of: PlanStore.shared.requestedTab) { _, requested in
+                if let requested = requested {
+                    show(requested)
+                    PlanStore.shared.requestedTab = nil
+                }
             }
-        }
-        .onChange(of: PlanStore.shared.requestedTab) { _, tab in
-            if let tab = tab {
-                selection = tab
-                PlanStore.shared.requestedTab = nil
-            }
-        }
-        .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillShowNotification)) { _ in
-            keyboardVisible = true
-        }
-        .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillHideNotification)) { _ in
-            keyboardVisible = false
-        }
     }
 
-    /// The tab that handles a route from the today screen. That screen applies the route itself
-    /// once its tab is showing.
+    /// Switches to `screen`, unless a run or track session is being recorded: that screen stays.
+    private func show(_ screen: AppTab) {
+        let store = PlanStore.shared
+        selection = ScreenRouting.resolve(current: selection,
+                                          requested: screen,
+                                          runInProgress: store.runInProgress,
+                                          trackInProgress: store.trackInProgress)
+    }
+
+    /// The screen that handles a route from the today screen. That screen applies the route itself
+    /// once it is showing.
     private func tab(for route: PlanRoute) -> AppTab {
         switch route {
         case .freeRun, .roadWorkout: return .run
@@ -47,7 +45,7 @@ struct ContentView: View {
 
     private var screens: some View {
         ZStack {
-            TodayView()
+            TodayView(isActive: selection == .today)
                 .modifier(TabLayer(isSelected: selection == .today))
             RunView(isActive: selection == .run)
                 .modifier(TabLayer(isSelected: selection == .run))
@@ -61,7 +59,7 @@ struct ContentView: View {
     }
 }
 
-/// Shows a screen only while its tab is selected, without tearing it down.
+/// Shows a screen only while it is the selected one, without tearing it down.
 private struct TabLayer: ViewModifier {
     let isSelected: Bool
 

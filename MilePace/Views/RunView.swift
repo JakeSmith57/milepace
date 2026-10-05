@@ -5,7 +5,7 @@ import CoreLocation
 
 @MainActor
 struct RunView: View {
-    /// True while the Run tab is the selected tab. All tabs stay alive, so this drives GPS warm-up.
+    /// True while the run screen is showing. All screens stay alive, so this drives GPS warm-up.
     let isActive: Bool
 
     @Environment(LocationTracker.self) private var tracker
@@ -71,7 +71,7 @@ struct RunView: View {
         return PlanStore.shared
     }
 
-    /// Today's unfinished plan session when it belongs on this tab (easy, long or road).
+    /// Today's unfinished plan session when it belongs on this screen (easy, long or road).
     private var todayRunIndex: Int? {
         guard let schedule = store.schedule else { return nil }
         return schedule.todays(today: store.todayOffset).first(where: { schedule.plan.sessions[$0].isRunTabSession })
@@ -107,9 +107,10 @@ struct RunView: View {
         .onChange(of: isActive) { _, active in
             syncWarmup()
             if active {
+                reloadDraft()
                 applyPendingRoute()
             } else if tracker.phase == .idle {
-                // Left the run tab without starting: forget the session the route opened.
+                // Left the run screen without starting: forget the session the route opened.
                 store.discardActive()
             }
         }
@@ -145,7 +146,7 @@ struct RunView: View {
         }
     }
 
-    /// Sets the idle run screen up for a plan route. Track routes belong to the track tab.
+    /// Sets the idle run screen up for a plan route. Track routes belong to the track screen.
     private func apply(_ route: PlanRoute) {
         switch route {
         case .freeRun(let zone):
@@ -163,7 +164,7 @@ struct RunView: View {
         }
     }
 
-    /// Takes a pending free-run or road route from the today screen once this tab is showing.
+    /// Takes a pending free-run or road route from the today screen once this screen is showing.
     private func applyPendingRoute() {
         guard isActive, let route = store.pendingRoute else { return }
         switch route {
@@ -179,7 +180,7 @@ struct RunView: View {
 
     // MARK: GPS warm-up
 
-    /// Keeps the GPS warm while the Run tab is showing, the app is in the foreground and nothing
+    /// Keeps the GPS warm while the run screen is showing, the app is in the foreground and nothing
     /// is being recorded. Everything else stops it.
     private func syncWarmup() {
         guard tracker.phase == .idle else { return }
@@ -191,6 +192,13 @@ struct RunView: View {
     }
 
     // MARK: Status line
+
+    /// "[ today ]" back to the home screen, only while leaving is allowed: nothing recording and no
+    /// summary sheet up.
+    private var todayAccessory: StatusAccessory? {
+        guard tracker.phase == .idle, summary == nil else { return nil }
+        return StatusAccessory(title: "today", action: { store.goHome() })
+    }
 
     private var diagAccessory: StatusAccessory? {
         guard diagnosticsEnabled else { return nil }
@@ -248,6 +256,7 @@ struct RunView: View {
                           right: idle ? "" : formatDuration(tracker.elapsed),
                           recording: tracker.phase == .running,
                           searching: tracker.gpsState.isSearching,
+                          accessory: todayAccessory,
                           accessories: accessoryList,
                           tag: store.isTestWeek ? "test" : "")
     }
@@ -885,6 +894,8 @@ struct RunView: View {
         tracker.reset()
         reloadDraft()
         syncWarmup()
+        // Finished with this run, saved or discarded: back to the home screen.
+        store.goHome()
     }
 
     // MARK: Unfinished run

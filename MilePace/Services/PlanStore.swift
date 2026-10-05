@@ -103,7 +103,8 @@ final class PlanStore {
     var activeSessionIndex: Int? = nil
     /// Set by "start"; the run or track screen applies it and clears it.
     var pendingRoute: PlanRoute? = nil
-    /// Set when a tapped reminder wants a tab; `ContentView` switches to it and clears it.
+    /// Set by `open(_:)`, `goHome()` and a tapped reminder; `ContentView` switches to it and clears it. A
+    /// request to leave a run or track session that is being recorded is ignored there.
     var requestedTab: AppTab? = nil
 
     private init() {
@@ -367,6 +368,18 @@ final class PlanStore {
     func resetProgress() {
         activeSessionIndex = nil
         apply(PlanProgress(planVersion: plan?.version ?? 1))
+    }
+
+    // MARK: Screens
+
+    /// Asks `ContentView` to show `screen` on top of Today.
+    func open(_ screen: AppTab) {
+        requestedTab = screen
+    }
+
+    /// Asks `ContentView` to go back to Today. Ignored there while a run or track session is recording.
+    func goHome() {
+        requestedTab = .today
     }
 
     // MARK: Starting a session

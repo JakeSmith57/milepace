@@ -489,13 +489,21 @@ struct TrackSessionView: View {
         .padding(.bottom, Theme.s3)
     }
 
+    /// The session is over (saved or discarded): tells the owner to close it. `trackInProgress` is cleared
+    /// first, because the owner may ask for the home screen before this view has disappeared, and a
+    /// recording session blocks that.
+    private func finish() {
+        PlanStore.shared.trackInProgress = false
+        onClose()
+    }
+
     private func discardWorkout() {
         saved = true
         TrackSessionStore.clear()
         RestAlert.cancel()
         Coach.shared.stopSpeaking()
         PlanStore.shared.discardActive()
-        onClose()
+        finish()
     }
 
     private func saveWorkout() {
@@ -526,7 +534,7 @@ struct TrackSessionView: View {
         if let offer = timeTrialOffer() {
             paceOffer = offer
         } else {
-            onClose()
+            finish()
         }
     }
 
@@ -545,11 +553,11 @@ struct TrackSessionView: View {
     private func applyPaceOffer(_ offer: PaceOffer) {
         mileTime = offer.seconds
         paceOffer = nil
-        onClose()
+        finish()
     }
 
     private func keepPaces() {
         paceOffer = nil
-        onClose()
+        finish()
     }
 }

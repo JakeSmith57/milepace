@@ -12,10 +12,10 @@ struct ResumeItem: Identifiable {
     let draft: TrackSessionDraft
 }
 
-/// Track tab: preset list, with a setup sheet that leads into the session.
+/// Track screen: preset list, with a setup sheet that leads into the session.
 @MainActor
 struct TrackSetupView: View {
-    /// True while the Track tab is the selected tab. Plan routes are applied only then.
+    /// True while the track screen is showing. Plan routes are applied only then.
     let isActive: Bool
 
     @AppStorage(SettingsKey.mileTime) private var mileTime: Double = AppSettings.defaultMileTime
@@ -43,6 +43,7 @@ struct TrackSetupView: View {
             StatusLine(left: "milepace",
                        center: "track",
                        right: goalHeader,
+                       accessory: StatusAccessory(title: "today", action: { store.goHome() }),
                        tag: store.isTestWeek ? "test" : "")
             planBanner
             resumeCard
@@ -67,12 +68,14 @@ struct TrackSetupView: View {
             store.discardActive()
             reloadDraft()
         }) { item in
-            WorkoutEditorView(spec: item.spec)
+            WorkoutEditorView(spec: item.spec, onFinished: { store.goHome() })
         }
         .fullScreenCover(item: $resuming) { item in
             TrackSessionView(spec: item.draft.workout.spec, restored: item.draft) {
                 resuming = nil
                 reloadDraft()
+                // The resumed session was saved or discarded: back to the home screen.
+                store.goHome()
             }
         }
         .onAppear {
@@ -84,7 +87,7 @@ struct TrackSetupView: View {
                 reloadDraft()
                 applyPendingRoute()
             } else if editing == nil {
-                // Left the track tab without starting: forget the session the route opened.
+                // Left the track screen without starting: forget the session the route opened.
                 store.discardActive()
             }
         }
@@ -170,7 +173,7 @@ struct TrackSetupView: View {
     }
 
     /// Opens the setup sheet for a preset id, or the custom builder when there is no such preset.
-    /// A plan time trial or race brings its own goal time; started from the track tab the mile time
+    /// A plan time trial or race brings its own goal time; started from the track screen the mile time
     /// trial aims for the current mile time.
     private func openTrack(_ presetId: String?, targetSeconds: Double? = nil) {
         if let id = presetId, let preset = WorkoutPresets.all.first(where: { $0.id == id }) {
@@ -270,7 +273,11 @@ struct WorkoutEditorView: View {
     @State private var setRestSeconds: Int
     @State private var session: SetupItem?
 
-    init(spec: WorkoutSpec) {
+    /// Called when the session started from this sheet was saved or discarded, before the sheet closes.
+    private let onFinished: () -> Void
+
+    init(spec: WorkoutSpec, onFinished: @escaping () -> Void = {}) {
+        self.onFinished = onFinished
         _name = State(initialValue: spec.name)
         _reps = State(initialValue: spec.reps)
         _distance = State(initialValue: spec.repDistance)
@@ -363,6 +370,7 @@ struct WorkoutEditorView: View {
         .fullScreenCover(item: $session) { item in
             TrackSessionView(spec: item.spec) {
                 session = nil
+                onFinished()
                 dismiss()
             }
         }

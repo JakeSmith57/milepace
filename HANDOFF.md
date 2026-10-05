@@ -300,3 +300,22 @@ Most likely to need a compile fix: `Coach.availableVoices()` (`voiceTraits.conta
 `VoicePickerView` (`ChoiceRow<Double>`), `SettingsView.voiceRow` (three modifiers on a Button in a computed property).
 Field checks: pause a run with the click on (silent at once), resume (click returns), tap cadence while paused, take a call while paused;
 pick an enhanced voice in Set and hear the sample; slower / faster speed; download a voice in iOS Settings and return (list refreshes).
+
+## v1.9: one home screen (PLAN-v11)
+Written on Linux with no Swift toolchain, so **none of it has been compiled**; `main` (v1.8) is the last compiled state.
+No tab bar: `TabStrip` is deleted, `AppTab` stays as the screen enum. `PlanStore.open(_:)` / `goHome()` set `requestedTab`;
+`ContentView` applies it through the pure `ScreenRouting.resolve` (new `Models/ScreenRouting.swift`), which keeps `.run` while a run
+is in progress and `.track` while a track session is, so a recording is never left (a tapped reminder uses `goHome()` too).
+Every screen but Today has `[ today ]` first in its status line (run: only while idle and no summary sheet). Closing the run summary
+calls `goHome()`; a finished track session calls it through `WorkoutEditorView(onFinished:)` / the resume cover, and
+`TrackSessionView.finish()` clears `trackInProgress` first (the cover is still up when the owner's closure runs, and the guard would
+otherwise swallow the request). Today: `[ log ]` / `[ set ]` accessories, an **other** section (`[ free run ]` sets
+`pendingRoute = .freeRun(zone: saved pace guard)` and opens run; `[ track workout ]` opens the preset list; both `discardActive()` first),
+and `[ open ]` cards for an unfinished run / track draft, reloaded on appear, scene active and when `TodayView(isActive:)` turns true.
+Tests: `ScreenRoutingTests`. Changed: `ContentView`, `Controls+Instrument`, `PlanStore`, `TodayView`, `RunView`, `TrackSetupView`,
+`TrackSessionView`, `HistoryView`, `SettingsView` (v1.9), `Reminders`, README, `project.yml` (1.9), wording "tab" to "screen".
+Most likely to need a compile fix: `TodayView` (`content` split into `unfinishedCards` / `planContent` / `otherSection`),
+`WorkoutEditorView.init(spec:onFinished:)` (escaping default closure), `ContentView.show`.
+Field checks: finish a run and save, then discard (both land on Today); end a track workout (save, discard, resume path);
+tap a reminder during a run (stays on run); kill the app mid-run, relaunch (Today card, `[ open ]`); `[ free run ]` with the
+pace guard set to easy; `[ today ]` hidden while a run is recording.

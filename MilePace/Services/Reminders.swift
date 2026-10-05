@@ -230,7 +230,7 @@ final class Reminders: NSObject, UNUserNotificationCenterDelegate {
                 }
             }
         } else if action == UNNotificationDefaultActionIdentifier {
-            store.requestedTab = .today
+            store.goHome()
         }
         if isSessionAction {
             await rebuild()

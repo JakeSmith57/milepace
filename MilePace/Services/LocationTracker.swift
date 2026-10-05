@@ -78,7 +78,7 @@ final class LocationTracker: NSObject, CLLocationManagerDelegate {
     /// Moving seconds at the last run-draft write.
     @ObservationIgnored private var lastCheckpointElapsed: Double = 0
     @ObservationIgnored private var cueTracker: DistanceCueTracker?
-    /// True while the Run tab wants the GPS warmed up.
+    /// True while the run screen wants the GPS warmed up.
     @ObservationIgnored private var warmupWanted = false
     /// True while location updates run for warm-up (idle, no background flag).
     @ObservationIgnored private var warmupActive = false
@@ -555,7 +555,7 @@ final class LocationTracker: NSObject, CLLocationManagerDelegate {
     private func setAuthorization(_ status: CLAuthorizationStatus, reducedAccuracy: Bool) {
         authorization = status
         accuracyReduced = reducedAccuracy
-        // Permission may have just been granted while the Run tab is waiting to warm up.
+        // Permission may have just been granted while the run screen is waiting to warm up.
         startWarmupIfPossible()
     }
 

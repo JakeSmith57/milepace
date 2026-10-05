@@ -78,7 +78,10 @@ struct SettingsView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            StatusLine(left: "milepace", center: "set", right: "v1.8")
+            StatusLine(left: "milepace",
+                       center: "set",
+                       right: "v1.9",
+                       accessory: StatusAccessory(title: "today", action: { PlanStore.shared.goHome() }))
             ScrollView {
                 VStack(alignment: .leading, spacing: 0) {
                     mileTimes

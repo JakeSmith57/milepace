@@ -3,12 +3,18 @@ import SwiftData
 import UIKit
 import UserNotifications
 
-/// First tab: what to do today, what was missed, and the week at a glance.
+/// The home screen: what to do today, what was missed, and the week at a glance. Run, track, log and
+/// set open from here.
 @MainActor
 struct TodayView: View {
+    /// True while the today screen is showing. All screens stay alive, so this drives the reload of
+    /// unfinished work when the runner comes back.
+    let isActive: Bool
+
     @AppStorage(SettingsKey.mileTime) private var mileTime: Double = AppSettings.defaultMileTime
     @AppStorage(SettingsKey.goalMile) private var goalMile: Double = AppSettings.defaultGoalMile
     @AppStorage(SettingsKey.paceWindow) private var paceWindow: Double = AppSettings.defaultPaceWindow
+    @AppStorage(SettingsKey.runZone) private var runZone: RunZoneTarget = .off
     @AppStorage(SettingsKey.reminderMorningMinutes) private var morningMinutes: Int = ReminderSettings.defaultMorningMinutes
     @AppStorage(SettingsKey.reminderEveningMinutes) private var eveningMinutes: Int = ReminderSettings.defaultEveningMinutes
 
@@ -18,8 +24,16 @@ struct TodayView: View {
     @Environment(\.scenePhase) private var scenePhase
 
     @State private var showOverview: Bool = false
+    /// A run found on disk that was never finished, offered on top of the screen.
+    @State private var runDraft: RunDraft? = nil
+    /// A track session found on disk that was never saved, offered the same way.
+    @State private var trackDraft: TrackSessionDraft? = nil
 
     private let ticker = Timer.publish(every: 60, on: .main, in: .common).autoconnect()
+
+    init(isActive: Bool) {
+        self.isActive = isActive
+    }
 
     private var store: PlanStore {
         return PlanStore.shared
@@ -52,6 +66,12 @@ struct TodayView: View {
             store.refresh()
             reconcile()
             syncReminders(refreshPermission: true)
+            reloadDrafts()
+        }
+        .onChange(of: isActive) { _, active in
+            if active {
+                reloadDrafts()
+            }
         }
         .onChange(of: runs.count) { old, new in
             // Fewer runs than before: one was deleted, and the sessions it had marked done are re-checked.
@@ -67,6 +87,7 @@ struct TodayView: View {
                 store.refresh()
                 reconcile()
                 syncReminders(refreshPermission: true)
+                reloadDrafts()
             }
         }
         .onChange(of: paceInputs) { _, _ in
@@ -123,25 +144,41 @@ struct TodayView: View {
         return ("week \(week) / \(schedule.plan.weeks.count)", phase)
     }
 
+    /// "[ log ]" and "[ set ]" open those screens.
+    private var screenAccessories: [StatusAccessory] {
+        return [StatusAccessory(title: "log", action: { store.open(.log) }),
+                StatusAccessory(title: "set", action: { store.open(.set) })]
+    }
+
     private var statusLine: some View {
         let texts = statusTexts
         return StatusLine(left: "milepace",
                           center: texts.center,
                           right: texts.right,
+                          accessories: screenAccessories,
                           tag: store.isTestWeek ? "test" : "")
     }
 
     // MARK: Content
 
-    @ViewBuilder
     private var content: some View {
+        return VStack(alignment: .leading, spacing: Theme.s3) {
+            unfinishedCards
+            planContent
+            otherSection
+        }
+        .padding(.horizontal, Theme.s3)
+        .padding(.vertical, Theme.s3)
+    }
+
+    @ViewBuilder
+    private var planContent: some View {
         if let schedule = store.schedule {
             planColumn(schedule)
         } else {
             Text("plan file missing.")
                 .font(Theme.mono(.body))
                 .foregroundStyle(Theme.dim)
-                .padding(Theme.s3)
         }
     }
 
@@ -156,8 +193,82 @@ struct TodayView: View {
                 showOverview = true
             }
         }
-        .padding(.horizontal, Theme.s3)
-        .padding(.vertical, Theme.s3)
+    }
+
+    // MARK: Unfinished work
+
+    /// Reads the run and track drafts from disk. Nothing is offered while that kind of session is being
+    /// recorded: its own checkpoint is on disk then, and it is not unfinished.
+    private func reloadDrafts() {
+        let run: RunDraft? = store.runInProgress ? nil : RunDraftStore.load()
+        if run != runDraft {
+            runDraft = run
+        }
+        let track: TrackSessionDraft? = store.trackInProgress ? nil : TrackSessionStore.load()
+        if track != trackDraft {
+            trackDraft = track
+        }
+    }
+
+    @ViewBuilder
+    private var unfinishedCards: some View {
+        if let draft = runDraft {
+            unfinishedCard(text: draft.summaryText(), screen: .run)
+        }
+        if let draft = trackDraft {
+            unfinishedCard(text: trackDraftText(draft), screen: .track)
+        }
+    }
+
+    private func trackDraftText(_ draft: TrackSessionDraft) -> String {
+        let prefix = draft.isFinished ? "unsaved track workout: " : "unfinished track workout: "
+        return prefix + draft.workout.spec.name
+    }
+
+    /// An inverted card; "[ open ]" goes to the screen that holds the save or discard choice.
+    private func unfinishedCard(text: String, screen: AppTab) -> some View {
+        return VStack(alignment: .leading, spacing: Theme.s2) {
+            Text(text)
+                .font(Theme.mono(.body))
+                .fixedSize(horizontal: false, vertical: true)
+            BracketButton(title: "open", style: .outlineOnInverted, minHeight: 48) {
+                store.open(screen)
+            }
+        }
+        .foregroundStyle(Theme.bg)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(Theme.s3)
+        .background(Theme.fg)
+    }
+
+    // MARK: Other
+
+    private var otherSection: some View {
+        return VStack(alignment: .leading, spacing: Theme.s2) {
+            SectionHeader("other")
+            HStack(spacing: Theme.s2) {
+                BracketButton(title: "free run") {
+                    startFreeRun()
+                }
+                BracketButton(title: "track workout") {
+                    openTrackList()
+                }
+            }
+        }
+    }
+
+    /// A run that belongs to no plan session: the run screen opens in free mode with the pace guard as
+    /// it was left.
+    private func startFreeRun() {
+        store.discardActive()
+        store.pendingRoute = PlanRoute.freeRun(zone: runZone)
+        store.open(.run)
+    }
+
+    /// The track screen's preset list, with no plan session attached.
+    private func openTrackList() {
+        store.discardActive()
+        store.open(.track)
     }
 
     private func micro(_ text: String) -> some View {

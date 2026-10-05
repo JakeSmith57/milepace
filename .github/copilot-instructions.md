@@ -1,8 +1,9 @@
 # Copilot instructions: MilePace
 
 MilePace is a native iOS app (SwiftUI, iOS 17+, Swift 5 language mode) for one runner training to
-run a 5:30 mile. It has four tabs: live GPS pace on runs, a tap-per-lap track workout timer with
-target splits, history with a weekly mileage chart, and settings. There is one user, no accounts,
+run a 5:30 mile. Today is the one home screen; run (live GPS pace), track (a tap-per-lap workout timer with
+target splits), log (history with a weekly mileage chart) and settings open from it and each has a
+`[ today ]` button back. There is one user, no accounts,
 and no network calls. Data is stored locally with SwiftData.
 
 ## Project facts

@@ -29,6 +29,7 @@ struct HistoryView: View {
                 StatusLine(left: "milepace",
                            center: "week of " + (thisWeek?.label ?? "--"),
                            right: String(format: "%.1f", thisWeekMiles) + " mi",
+                           accessory: StatusAccessory(title: "today", action: { PlanStore.shared.goHome() }),
                            tag: PlanStore.shared.isTestWeek ? "test" : "")
                 ScrollView {
                     VStack(alignment: .leading, spacing: 0) {

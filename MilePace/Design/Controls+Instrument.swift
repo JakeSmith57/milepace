@@ -172,8 +172,10 @@ struct HoldBar: View {
     }
 }
 
-// MARK: - Tab strip
+// MARK: - Screens
 
+/// The five screens. Today is home; the others are opened from it with `PlanStore.open(_:)` and left
+/// with `PlanStore.goHome()`.
 enum AppTab: String, CaseIterable, Identifiable {
     case today
     case run
@@ -182,39 +184,6 @@ enum AppTab: String, CaseIterable, Identifiable {
     case set
 
     var id: String { rawValue }
-}
-
-/// Bottom bar: five equal text cells under a 2 pt rule; the selected cell is inverted.
-struct TabStrip: View {
-    @Binding var selection: AppTab
-
-    var body: some View {
-        VStack(spacing: 0) {
-            SolidRule()
-            HStack(spacing: 0) {
-                ForEach(AppTab.allCases) { tab in
-                    Button {
-                        selection = tab
-                    } label: {
-                        cell(tab)
-                    }
-                    .buttonStyle(InstrumentButtonStyle())
-                }
-            }
-        }
-        .background(Theme.bg.ignoresSafeArea(edges: .bottom))
-    }
-
-    private func cell(_ tab: AppTab) -> some View {
-        let selected = tab == selection
-        return Text(tab.rawValue)
-            .font(Theme.mono(.body))
-            .foregroundStyle(selected ? Theme.bg : Theme.fg)
-            .lineLimit(1)
-            .minimumScaleFactor(0.6)
-            .frame(maxWidth: .infinity, minHeight: 56)
-            .background(selected ? Theme.fg : Theme.bg)
-    }
 }
 
 // MARK: - Settings-style rows
