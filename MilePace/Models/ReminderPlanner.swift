@@ -71,6 +71,7 @@ enum ReminderPlanner {
                       zones: PaceZones,
                       goalMile: Double,
                       startDate: Date,
+                      paceWindow: Double = PaceZones.defaultWindow,
                       windowDays: Int = 14,
                       cap: Int = 60) -> [ReminderSpec] {
         guard settings.enabled, windowDays > 0, cap > 0 else { return [] }
@@ -79,7 +80,7 @@ enum ReminderPlanner {
         var specs: [ReminderSpec] = []
         specs.append(contentsOf: startSpecs(window: window, settings: settings))
         specs.append(contentsOf: sessionSpecs(schedule: schedule, window: window, settings: settings,
-                                              zones: zones, goalMile: goalMile))
+                                              zones: zones, goalMile: goalMile, paceWindow: paceWindow))
         specs.append(contentsOf: timeTrialSpecs(schedule: schedule, window: window, settings: settings,
                                                 goalMile: goalMile))
         specs.append(contentsOf: weeklySpecs(schedule: schedule, window: window, settings: settings,
@@ -119,13 +120,14 @@ enum ReminderPlanner {
                                      window: ClosedRange<Int>,
                                      settings: ReminderSettings,
                                      zones: PaceZones,
-                                     goalMile: Double) -> [ReminderSpec] {
+                                     goalMile: Double,
+                                     paceWindow: Double) -> [ReminderSpec] {
         var specs: [ReminderSpec] = []
         for day in window {
             guard let index = schedule.todays(today: day).first else { continue }
             let session = schedule.plan.sessions[index]
             if settings.morning {
-                let detail = PlanText.detail(for: session, zones: zones, goalMile: goalMile)
+                let detail = PlanText.detail(for: session, zones: zones, goalMile: goalMile, window: paceWindow)
                 specs.append(ReminderSpec(id: morningPrefix + String(day),
                                           dayOffset: day,
                                           minutes: clamped(settings.morningMinutes),
@@ -168,9 +170,9 @@ enum ReminderPlanner {
             let isRace = session.kind == .race
             var body = "keep today short and easy."
             if isRace {
-                body = "goal " + formatPace(secondsPerMile: goalMile) + ". lay out your shoes."
-            } else if let note = session.note, !note.isEmpty {
-                body += " " + note + "."
+                body = PlanText.raceGoal(for: session, goalMile: goalMile) + ". lay out your shoes."
+            } else {
+                body += trialSuffix(for: session)
             }
             specs.append(ReminderSpec(id: timeTrialPrefix + String(day),
                                       dayOffset: day,
@@ -181,6 +183,18 @@ enum ReminderPlanner {
                                       sessionIndex: nil))
         }
         return specs
+    }
+
+    /// " target \u{2264} 6:35." and the session's note when it says something else; empty when neither.
+    private static func trialSuffix(for session: PlanSession) -> String {
+        var parts: [String] = []
+        if let target = PlanText.trialTarget(for: session) {
+            parts.append(target)
+        }
+        if let note = session.note, !note.isEmpty, !parts.contains(where: { PlanText.sameText($0, note) }) {
+            parts.append(note)
+        }
+        return parts.map { " " + $0 + "." }.joined()
     }
 
     /// The Sunday summary: always on the calendar Sunday at 18:00. It counts the Monday-to-Sunday

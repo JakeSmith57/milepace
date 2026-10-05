@@ -22,6 +22,8 @@ struct RunSummary: Identifiable, Equatable {
     /// Steps per minute over the run; nil when the pedometer gave no data.
     var averageCadence: Double? = nil
     var route: [RoutePoint] = []
+    /// What the end-of-run pedometer query needs; nil when the run never had a cadence tracker running.
+    var cadencePlan: CadenceQueryPlan? = nil
 }
 
 @Observable
@@ -41,6 +43,11 @@ final class LocationTracker: NSObject, CLLocationManagerDelegate {
     let cadence = CadenceTracker()
     /// GPS quality for the status line. `.off` unless warming up or running.
     private(set) var gpsState: GPSState = .off
+    /// True from the idle GPS warm-up timing out until it is woken or restarted: the status line says
+    /// "gps paused" and offers "[ wake ]".
+    private(set) var warmupTimedOut: Bool = false
+    /// True when the user allows only approximate location, so distance and pace cannot be recorded.
+    private(set) var accuracyReduced: Bool = false
     /// The run's route so far (downsampled to at least 10 m between points, the same points that get
     /// saved), for the live map. Only republished when a point was added.
     private(set) var liveRoute: [RoutePoint] = []
@@ -61,7 +68,11 @@ final class LocationTracker: NSObject, CLLocationManagerDelegate {
     @ObservationIgnored private var calculator = PaceCalculator()
     @ObservationIgnored private var timer: Timer?
     @ObservationIgnored private var startedAt = Date()
-    @ObservationIgnored private var lastSampleAt: Date?
+    /// When a sample last changed the pace: one that added distance (or anchored the route) or one that
+    /// updated the Doppler speed. Fixes that are rejected do not count, so a frozen pace goes blank.
+    @ObservationIgnored private var paceUpdatedAt: Date?
+    /// Moving seconds at the last run-draft write.
+    @ObservationIgnored private var lastCheckpointElapsed: Double = 0
     @ObservationIgnored private var cueTracker: DistanceCueTracker?
     /// True while the Run tab wants the GPS warmed up.
     @ObservationIgnored private var warmupWanted = false
@@ -76,6 +87,8 @@ final class LocationTracker: NSObject, CLLocationManagerDelegate {
     /// A warm-up fix at most this old (seconds) and this accurate (meters) seeds the run.
     static let seedMaxAge: Double = 3
     static let seedMaxAccuracy: Double = 20
+    /// The run draft is rewritten after this many more seconds of moving time.
+    static let checkpointSeconds: Double = 30
 
     init(manager: CLLocationManager = CLLocationManager()) {
         self.manager = manager
@@ -86,6 +99,7 @@ final class LocationTracker: NSObject, CLLocationManagerDelegate {
         manager.distanceFilter = kCLDistanceFilterNone
         manager.pausesLocationUpdatesAutomatically = false
         authorization = manager.authorizationStatus
+        accuracyReduced = manager.accuracyAuthorization == .reducedAccuracy
     }
 
     // MARK: Authorization
@@ -111,6 +125,14 @@ final class LocationTracker: NSObject, CLLocationManagerDelegate {
         startWarmupIfPossible()
     }
 
+    /// "[ wake ]" after the warm-up timed out: starts it again.
+    func wakeWarmup() {
+        guard phase == .idle else { return }
+        warmupTimedOut = false
+        warmupWanted = true
+        startWarmupIfPossible()
+    }
+
     /// Stops warm-up updates when idle.
     func endWarmup() {
         warmupWanted = false
@@ -121,6 +143,7 @@ final class LocationTracker: NSObject, CLLocationManagerDelegate {
     private func startWarmupIfPossible() {
         guard warmupWanted, phase == .idle, isAuthorized, !warmupActive else { return }
         warmupActive = true
+        warmupTimedOut = false
         warmupStartedAt = Date()
         lastFix = nil
         Diagnostics.shared.setClock(-1)
@@ -176,7 +199,9 @@ final class LocationTracker: NSObject, CLLocationManagerDelegate {
         calculator = PaceCalculator()
         calculator.start(at: now)
         startedAt = now
-        lastSampleAt = nil
+        paceUpdatedAt = nil
+        lastCheckpointElapsed = 0
+        warmupTimedOut = false
         distanceMeters = 0
         elapsed = 0
         currentPace = nil
@@ -227,8 +252,11 @@ final class LocationTracker: NSObject, CLLocationManagerDelegate {
 
     func pause() {
         guard phase == .running else { return }
-        calculator.pause(at: Date())
+        let now = Date()
+        calculator.pause(at: now)
+        cadence.pause(at: now)
         currentPace = nil
+        paceUpdatedAt = nil
         phase = .paused
         refreshClock()
         Diagnostics.shared.log(.state, "state pause")
@@ -236,8 +264,11 @@ final class LocationTracker: NSObject, CLLocationManagerDelegate {
 
     func resume() {
         guard phase == .paused else { return }
-        calculator.resume(at: Date())
-        lastSampleAt = nil
+        let now = Date()
+        calculator.resume(at: now)
+        cadence.resume(at: now)
+        paceUpdatedAt = nil
+        currentPace = nil
         phase = .running
         refreshClock()
         Diagnostics.shared.log(.state, "state resume")
@@ -249,6 +280,7 @@ final class LocationTracker: NSObject, CLLocationManagerDelegate {
         let now = Date()
         if phase == .paused {
             calculator.resume(at: now)
+            cadence.resume(at: now)
         }
         let duration = calculator.elapsed(at: now)
         let distance = calculator.totalDistance
@@ -260,7 +292,8 @@ final class LocationTracker: NSObject, CLLocationManagerDelegate {
                                  splits: calculator.splits,
                                  workoutName: workout?.spec.name,
                                  averageCadence: cadence.averageSPM(movingSeconds: duration),
-                                 route: calculator.route)
+                                 route: calculator.route,
+                                 cadencePlan: cadence.queryPlan(runStart: startedAt, end: now))
 
         cadence.stop()
         cueTracker = nil
@@ -290,10 +323,36 @@ final class LocationTracker: NSObject, CLLocationManagerDelegate {
         splits = []
         liveRoute = []
         lastCoordinate = nil
-        lastSampleAt = nil
+        paceUpdatedAt = nil
         cueTracker = nil
         workout = nil
         cadence.reset()
+    }
+
+    // MARK: Run draft
+
+    /// The run so far as a draft, or nil when no run is going.
+    func draftSnapshot(now: Date = Date()) -> RunDraft? {
+        guard phase != .idle else { return nil }
+        return RunDraft(start: startedAt,
+                        distanceMeters: calculator.totalDistance,
+                        movingSeconds: calculator.elapsed(at: now),
+                        splits: calculator.splits,
+                        route: calculator.route,
+                        cadenceSteps: cadence.movingSteps,
+                        workoutName: workout?.spec.name ?? "")
+    }
+
+    /// Writes the draft now (the app is going to the background).
+    func checkpoint() {
+        guard let draft = draftSnapshot() else { return }
+        lastCheckpointElapsed = draft.movingSeconds
+        RunDraftStore.save(draft)
+    }
+
+    private func checkpointIfDue() {
+        guard elapsed - lastCheckpointElapsed >= LocationTracker.checkpointSeconds else { return }
+        checkpoint()
     }
 
     // MARK: Guided workout
@@ -368,9 +427,8 @@ final class LocationTracker: NSObject, CLLocationManagerDelegate {
         diagnostics.setCadence(cadence.currentSPM)
         diagnostics.refresh(now: Date())
         guard phase == .running else { return }
-        if let last = lastSampleAt, Date().timeIntervalSince(last) > 10 {
-            currentPace = nil
-        }
+        currentPace = PaceFreshness.pace(currentPace, lastUpdate: paceUpdatedAt, now: Date())
+        checkpointIfDue()
         let events = workout?.update(elapsed: elapsed, distance: calculator.totalDistance) ?? []
         forward(events)
         onTick?(currentPace)
@@ -383,6 +441,7 @@ final class LocationTracker: NSObject, CLLocationManagerDelegate {
            Date().timeIntervalSince(began) >= LocationTracker.warmupTimeoutSeconds {
             warmupWanted = false
             stopWarmupUpdates(note: "warm-up timeout")
+            warmupTimedOut = true
             return
         }
         refreshGPS()
@@ -416,6 +475,7 @@ final class LocationTracker: NSObject, CLLocationManagerDelegate {
             return
         }
         var latestAccepted: PaceSample?
+        let dopplerBefore = calculator.dopplerUpdatedAt
         for sample in samples {
             let before = calculator.splits.count
             calculator.add(sample)
@@ -442,10 +502,13 @@ final class LocationTracker: NSObject, CLLocationManagerDelegate {
             }
         }
         distanceMeters = calculator.totalDistance
-        currentPace = calculator.currentPace
         splits = calculator.splits
         publishLiveRoute(latestAccepted)
-        lastSampleAt = Date()
+        let now = Date()
+        if latestAccepted != nil || calculator.dopplerUpdatedAt != dopplerBefore {
+            paceUpdatedAt = now
+        }
+        currentPace = PaceFreshness.pace(calculator.currentPace, lastUpdate: paceUpdatedAt, now: now)
         refreshClock()
 
         if let stamp = samples.last?.timestamp {
@@ -482,8 +545,9 @@ final class LocationTracker: NSObject, CLLocationManagerDelegate {
         }
     }
 
-    private func setAuthorization(_ status: CLAuthorizationStatus) {
+    private func setAuthorization(_ status: CLAuthorizationStatus, reducedAccuracy: Bool) {
         authorization = status
+        accuracyReduced = reducedAccuracy
         // Permission may have just been granted while the Run tab is waiting to warm up.
         startWarmupIfPossible()
     }
@@ -511,8 +575,9 @@ final class LocationTracker: NSObject, CLLocationManagerDelegate {
 
     nonisolated func locationManagerDidChangeAuthorization(_ manager: CLLocationManager) {
         let status = manager.authorizationStatus
+        let reduced = manager.accuracyAuthorization == .reducedAccuracy
         Task { @MainActor in
-            self.setAuthorization(status)
+            self.setAuthorization(status, reducedAccuracy: reduced)
         }
     }
 

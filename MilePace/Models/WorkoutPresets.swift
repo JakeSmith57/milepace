@@ -16,8 +16,10 @@ enum PresetTarget: Equatable {
     case zone(PaceZoneKind)
     /// A fixed rep time in seconds.
     case fixed(Double)
-    /// The runner's goal mile time.
+    /// The runner's goal mile time, for the whole mile.
     case goalMile
+    /// The runner's goal mile pace over the rep distance: a quarter of the goal mile per 400 m.
+    case goalPace
 }
 
 struct WorkoutPreset: Identifiable, Equatable {
@@ -51,6 +53,20 @@ struct WorkoutPreset: Identifiable, Equatable {
         self.setRestSeconds = setRestSeconds
     }
 
+    /// The spec to set up from the track screen. The mile time trial aims for the session's goal time when
+    /// the plan sends one (`planTarget`), and otherwise for the runner's current mile time.
+    func startSpec(zones: PaceZones, goalMile: Double, mileTime: Double, planTarget: Double? = nil) -> WorkoutSpec {
+        var result = spec(zones: zones, goalMile: goalMile)
+        if id == PlanSchedule.mileTrialPresetId {
+            if let target = planTarget, target > 0 {
+                result.targetRepSeconds = target
+            } else if mileTime.isFinite, mileTime > 0 {
+                result.targetRepSeconds = (mileTime * 10).rounded() / 10
+            }
+        }
+        return result
+    }
+
     /// Builds a concrete spec using the runner's current zones and goal mile.
     func spec(zones: PaceZones, goalMile: Double) -> WorkoutSpec {
         let seconds: Double
@@ -61,6 +77,8 @@ struct WorkoutPreset: Identifiable, Equatable {
             seconds = value
         case .goalMile:
             seconds = goalMile
+        case .goalPace:
+            seconds = goalMile / 4 * Double(repDistance) / 400
         }
         let rounded = (seconds * 10).rounded() / 10
         return WorkoutSpec(name: name,
@@ -80,10 +98,10 @@ enum WorkoutPresets {
                       targetKind: .zone(.repetition), restSeconds: 75),
         WorkoutPreset(id: "8x200-r", name: "8 × 200 @ R", group: .shortReps, reps: 8, repDistance: 200,
                       targetKind: .zone(.repetition), restSeconds: 75),
-        WorkoutPreset(id: "10x200-goal", name: "10 × 200 @ goal 41s", group: .shortReps, reps: 10, repDistance: 200,
-                      targetKind: .fixed(41), restSeconds: 75),
-        WorkoutPreset(id: "12x200-goal", name: "12 × 200 @ goal 41s", group: .shortReps, reps: 12, repDistance: 200,
-                      targetKind: .fixed(41), restSeconds: 75),
+        WorkoutPreset(id: "10x200-goal", name: "10 × 200 @ goal", group: .shortReps, reps: 10, repDistance: 200,
+                      targetKind: .goalPace, restSeconds: 75),
+        WorkoutPreset(id: "12x200-goal", name: "12 × 200 @ goal", group: .shortReps, reps: 12, repDistance: 200,
+                      targetKind: .goalPace, restSeconds: 75),
         WorkoutPreset(id: "10x200-r", name: "10 × 200 @ R", group: .shortReps, reps: 10, repDistance: 200,
                       targetKind: .zone(.repetition), restSeconds: 75),
         WorkoutPreset(id: "3s-3x300-r", name: "3 sets × 3 × 300 @ R", group: .shortReps, reps: 3, repDistance: 300,
@@ -97,7 +115,7 @@ enum WorkoutPresets {
         WorkoutPreset(id: "4x400-82", name: "4 × 400 @ 82s", group: .fourHundreds, reps: 4, repDistance: 400,
                       targetKind: .fixed(82), restSeconds: 180),
         WorkoutPreset(id: "3x400-goal", name: "3 × 400 @ goal", group: .fourHundreds, reps: 3, repDistance: 400,
-                      targetKind: .fixed(PaceZones.goalPer400), restSeconds: 180),
+                      targetKind: .goalPace, restSeconds: 180),
         WorkoutPreset(id: "6x400-82", name: "6 × 400 @ 82s", group: .fourHundreds, reps: 6, repDistance: 400,
                       targetKind: .fixed(82.5), restSeconds: 120),
         WorkoutPreset(id: "2s-4x400-83", name: "2 sets × 4 × 400 @ 83s", group: .fourHundreds, reps: 4, repDistance: 400,
@@ -132,6 +150,11 @@ enum WorkoutPresets {
                       targetKind: .goalMile, restSeconds: 0)
     ]
 
+    /// Goal pace per 400 m for a goal mile time ("goal 82.5/400").
+    static func goalPer400(goalMile: Double) -> Double {
+        return goalMile / 4
+    }
+
     static func presets(in group: PresetGroup) -> [WorkoutPreset] {
         return all.filter { $0.group == group }
     }
@@ -143,5 +166,20 @@ enum WorkoutPresets {
                            repDistance: 400,
                            targetRepSeconds: (zones.targetSeconds(distanceMeters: 400, zone: .repetition) * 10).rounded() / 10,
                            restSeconds: 120)
+    }
+}
+
+/// How the setup sheet keeps its numbers in step when one of them changes.
+enum WorkoutEditing {
+    /// The rep target after the rep distance changes from `old` to `new`, keeping the same pace.
+    static func rescaledTarget(_ seconds: Double, fromDistance old: Int, toDistance new: Int) -> Double {
+        guard old > 0, new > 0, seconds.isFinite else { return seconds }
+        return seconds * Double(new) / Double(old)
+    }
+
+    /// Rest between sets once there is more than one set: at least twice the rest between reps.
+    static func setRest(current: Int, repRest: Int, sets: Int) -> Int {
+        guard sets > 1 else { return current }
+        return max(current, 2 * repRest)
     }
 }

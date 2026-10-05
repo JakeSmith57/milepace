@@ -2,44 +2,6 @@ import SwiftUI
 import SwiftData
 import Charts
 
-struct WeekBucket: Identifiable, Equatable {
-    let weekStart: Date
-    let label: String
-    let miles: Double
-
-    var id: Date { weekStart }
-}
-
-enum WeeklyMiles {
-    /// Miles per Monday-to-Sunday week for the last `weeks` weeks, oldest first.
-    static func buckets(runs: [(date: Date, meters: Double)],
-                        weeks: Int = 10,
-                        now: Date = Date()) -> [WeekBucket] {
-        var calendar = Calendar(identifier: .gregorian)
-        calendar.firstWeekday = 2
-        calendar.minimumDaysInFirstWeek = 4
-        guard let thisWeek = calendar.dateInterval(of: .weekOfYear, for: now)?.start else { return [] }
-
-        let formatter = DateFormatter()
-        formatter.calendar = calendar
-        formatter.dateFormat = "M/d"
-
-        var result: [WeekBucket] = []
-        for offset in stride(from: weeks - 1, through: 0, by: -1) {
-            guard let start = calendar.date(byAdding: .weekOfYear, value: -offset, to: thisWeek),
-                  let end = calendar.date(byAdding: .weekOfYear, value: 1, to: start) else { continue }
-            var meters = 0.0
-            for run in runs where run.date >= start && run.date < end {
-                meters += run.meters
-            }
-            result.append(WeekBucket(weekStart: start,
-                                     label: formatter.string(from: start),
-                                     miles: meters / metersPerMile))
-        }
-        return result
-    }
-}
-
 @MainActor
 struct HistoryView: View {
     @Query(sort: \RunRecord.date, order: .reverse) private var runs: [RunRecord]
@@ -47,9 +9,10 @@ struct HistoryView: View {
 
     @State private var showingAdd = false
 
+    /// The same Monday-to-Sunday weekly miles as the today screen: runs plus estimated track workouts.
     private var buckets: [WeekBucket] {
-        let pairs = runs.map { (date: $0.date, meters: $0.distanceMeters) }
-        return WeeklyMiles.buckets(runs: pairs)
+        return WeeklyMiles.buckets(runs: runs.map { LoggedRun(record: $0) },
+                                   workouts: workouts.map { LoggedWorkout(record: $0) })
     }
 
     private var thisWeek: WeekBucket? {
@@ -209,21 +172,30 @@ struct AddMilesView: View {
     @State private var milesText: String = ""
     @State private var durationText: String = ""
 
+    /// Noon of the day `days` ago, so an entry made in the small hours still lands on that day.
     private func date(daysAgo days: Int) -> Date {
-        return Calendar.current.date(byAdding: .day, value: -days, to: Date()) ?? Date()
+        let calendar = PlanCalendar.local
+        let day = calendar.date(byAdding: .day, value: -days, to: Date()) ?? Date()
+        return calendar.date(bySettingHour: 12, minute: 0, second: 0, of: day) ?? day
     }
 
     private var parsedMiles: Double? {
-        let cleaned = milesText.replacingOccurrences(of: ",", with: ".")
-        guard let value = Double(cleaned), value > 0, value < 200 else { return nil }
-        return value
+        return InputParsing.addedMiles(milesText)
     }
 
-    /// Nil means invalid; 0 means not provided.
+    private var trimmedDuration: String {
+        return durationText.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    /// Nil means invalid; 0 means not provided. A bare number is minutes. With miles entered, the
+    /// pace has to be between 4:00 and 20:00 per mile.
     private var parsedDuration: Double? {
-        let trimmed = durationText.trimmingCharacters(in: .whitespacesAndNewlines)
-        if trimmed.isEmpty { return 0 }
-        return parseTime(trimmed)
+        if trimmedDuration.isEmpty { return 0 }
+        guard let seconds = InputParsing.addedDuration(trimmedDuration) else { return nil }
+        if let miles = parsedMiles, !InputParsing.isPlausiblePace(seconds: seconds, miles: miles) {
+            return nil
+        }
+        return seconds
     }
 
     private var canSave: Bool {
@@ -236,7 +208,11 @@ struct AddMilesView: View {
     }
 
     private var durationNote: String? {
-        return parsedDuration == nil ? "time like 32:10 or 1:05:00" : nil
+        if trimmedDuration.isEmpty || parsedDuration != nil { return nil }
+        if InputParsing.addedDuration(trimmedDuration) == nil {
+            return "minutes like 45, or 32:10, or 1:05:00"
+        }
+        return "that works out outside 4:00 to 20:00 per mile"
     }
 
     var body: some View {
@@ -264,11 +240,11 @@ struct AddMilesView: View {
                              note: milesNote,
                              keyboard: .decimalPad)
                     FieldRow(key: "time",
-                             placeholder: "m:ss",
+                             placeholder: "min or m:ss",
                              text: $durationText,
                              note: durationNote,
                              keyboard: .numbersAndPunctuation)
-                    Text("time is optional.")
+                    Text("time is optional. a bare number is minutes.")
                         .font(Theme.mono(.micro))
                         .foregroundStyle(Theme.dim)
                         .padding(.top, Theme.s2)
@@ -295,6 +271,7 @@ struct AddMilesView: View {
                                splits: [],
                                notes: "")
         modelContext.insert(record)
+        try? modelContext.save()
         dismiss()
     }
 }

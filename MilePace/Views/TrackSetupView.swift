@@ -6,6 +6,12 @@ struct SetupItem: Identifiable {
     var spec: WorkoutSpec
 }
 
+/// Identifiable wrapper for resuming a saved session in `fullScreenCover(item:)`.
+struct ResumeItem: Identifiable {
+    let id = UUID()
+    let draft: TrackSessionDraft
+}
+
 /// Track tab: preset list, with a setup sheet that leads into the session.
 @MainActor
 struct TrackSetupView: View {
@@ -16,6 +22,9 @@ struct TrackSetupView: View {
     @AppStorage(SettingsKey.goalMile) private var goalMile: Double = AppSettings.defaultGoalMile
 
     @State private var editing: SetupItem?
+    @State private var savedDraft: TrackSessionDraft?
+    @State private var resuming: ResumeItem?
+    @State private var confirmDiscardDraft: Bool = false
 
     init(isActive: Bool) {
         self.isActive = isActive
@@ -31,8 +40,9 @@ struct TrackSetupView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            StatusLine(left: "milepace", center: "track", right: "goal " + formatSplit(PaceZones.goalPer400) + "/400")
+            StatusLine(left: "milepace", center: "track", right: goalHeader)
             planBanner
+            resumeCard
             ScrollView {
                 VStack(alignment: .leading, spacing: 0) {
                     ForEach(PresetGroup.allCases) { group in
@@ -52,14 +62,23 @@ struct TrackSetupView: View {
         .sheet(item: $editing, onDismiss: {
             // Leaving the setup sheet, or finishing from it, ends the plan session hand-off.
             store.discardActive()
+            reloadDraft()
         }) { item in
             WorkoutEditorView(spec: item.spec)
         }
+        .fullScreenCover(item: $resuming) { item in
+            TrackSessionView(spec: item.draft.workout.spec, restored: item.draft) {
+                resuming = nil
+                reloadDraft()
+            }
+        }
         .onAppear {
+            reloadDraft()
             applyPendingRoute()
         }
         .onChange(of: isActive) { _, active in
             if active {
+                reloadDraft()
                 applyPendingRoute()
             } else if editing == nil {
                 // Left the track tab without starting: forget the session the route opened.
@@ -68,6 +87,59 @@ struct TrackSetupView: View {
         }
         .onChange(of: PlanStore.shared.pendingRoute) { _, _ in
             applyPendingRoute()
+        }
+    }
+
+    /// "goal 82.5/400", from the goal mile setting.
+    private var goalHeader: String {
+        return "goal " + formatSplit(WorkoutPresets.goalPer400(goalMile: goalMile)) + "/400"
+    }
+
+    // MARK: Saved session
+
+    private func reloadDraft() {
+        let draft = TrackSessionStore.load()
+        if draft != savedDraft {
+            savedDraft = draft
+        }
+        if draft == nil {
+            confirmDiscardDraft = false
+        }
+    }
+
+    /// A session that was running when the app was closed or killed, offered for three hours.
+    @ViewBuilder
+    private var resumeCard: some View {
+        if let draft = savedDraft {
+            VStack(alignment: .leading, spacing: Theme.s2) {
+                Text(draft.title)
+                    .font(Theme.mono(.body))
+                    .fixedSize(horizontal: false, vertical: true)
+                HStack(spacing: Theme.s2) {
+                    BracketButton(title: draft.actionTitle, style: .outlineOnInverted, minHeight: 48) {
+                        resuming = ResumeItem(draft: draft)
+                    }
+                    BracketButton(title: confirmDiscardDraft ? "yes, discard" : "discard",
+                                  style: .outlineOnInverted,
+                                  minHeight: 48) {
+                        discardDraft()
+                    }
+                }
+            }
+            .foregroundStyle(Theme.bg)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(Theme.s3)
+            .background(Theme.fg)
+        }
+    }
+
+    private func discardDraft() {
+        if confirmDiscardDraft {
+            TrackSessionStore.clear()
+            confirmDiscardDraft = false
+            reloadDraft()
+        } else {
+            confirmDiscardDraft = true
         }
     }
 
@@ -91,14 +163,11 @@ struct TrackSetupView: View {
     }
 
     /// Opens the setup sheet for a preset id, or the custom builder when there is no such preset.
-    /// A plan time trial or race brings its own goal time, which replaces the mile preset's target.
+    /// A plan time trial or race brings its own goal time; started from the track tab the mile time
+    /// trial aims for the current mile time.
     private func openTrack(_ presetId: String?, targetSeconds: Double? = nil) {
         if let id = presetId, let preset = WorkoutPresets.all.first(where: { $0.id == id }) {
-            var spec = preset.spec(zones: zones, goalMile: goalMile)
-            if id == PlanSchedule.mileTrialPresetId, let target = targetSeconds, target > 0 {
-                spec.targetRepSeconds = target
-            }
-            editing = SetupItem(spec: spec)
+            editing = SetupItem(spec: startSpec(preset, planTarget: targetSeconds))
         } else {
             editing = SetupItem(spec: WorkoutPresets.customSpec(zones: zones))
         }
@@ -131,8 +200,12 @@ struct TrackSetupView: View {
         }
     }
 
+    private func startSpec(_ preset: WorkoutPreset, planTarget: Double?) -> WorkoutSpec {
+        return preset.startSpec(zones: zones, goalMile: goalMile, mileTime: mileTime, planTarget: planTarget)
+    }
+
     private func presetButton(_ preset: WorkoutPreset) -> some View {
-        let spec = preset.spec(zones: zones, goalMile: goalMile)
+        let spec = startSpec(preset, planTarget: nil)
         return Button {
             editing = SetupItem(spec: spec)
         } label: {
@@ -274,12 +347,25 @@ struct WorkoutEditorView: View {
             .scrollDismissesKeyboard(.interactively)
         }
         .instrumentScreen()
+        .onChange(of: distance) { old, new in
+            rescaleTarget(from: old, to: new)
+        }
+        .onChange(of: sets) { _, newSets in
+            setRestSeconds = WorkoutEditing.setRest(current: setRestSeconds, repRest: restSeconds, sets: newSets)
+        }
         .fullScreenCover(item: $session) { item in
             TrackSessionView(spec: item.spec) {
                 session = nil
                 dismiss()
             }
         }
+    }
+
+    /// Keeps the same pace when the rep distance changes: 82 s for 400 m becomes 164 s for 800 m.
+    private func rescaleTarget(from old: Int, to new: Int) {
+        guard let target = parsedTarget else { return }
+        let scaled = WorkoutEditing.rescaledTarget(target, fromDistance: old, toDistance: new)
+        targetText = formatSplit(scaled)
     }
 
     private var workoutSection: some View {

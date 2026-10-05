@@ -3,7 +3,7 @@ import MapKit
 import CoreLocation
 
 /// Route map colored by pace relative to the run average, with start, finish and mile markers.
-/// Faster is signal blue, steady is the foreground color and slower is dim.
+/// Faster is solid signal blue, steady is solid foreground color and slower is a dashed foreground line.
 struct RunMapView: View {
     private struct MileMarker: Identifiable {
         let id: Int
@@ -32,7 +32,15 @@ struct RunMapView: View {
         switch band {
         case .faster: return Theme.signal
         case .steady: return Theme.fg
-        case .slower: return Theme.dim
+        case .slower: return Theme.fg
+        }
+    }
+
+    /// Slower stretches are dashed, so they stand out against the map without a dim color.
+    private func lineStyle(_ band: PaceBand) -> StrokeStyle {
+        switch band {
+        case .faster, .steady: return StrokeStyle(lineWidth: 5)
+        case .slower: return StrokeStyle(lineWidth: 5, lineCap: .butt, dash: [5, 6])
         }
     }
 
@@ -55,7 +63,7 @@ struct RunMapView: View {
         Map(initialPosition: .automatic) {
             ForEach(segments) { segment in
                 MapPolyline(coordinates: coordinates(segment))
-                    .stroke(color(segment.band), lineWidth: 5)
+                    .stroke(color(segment.band), style: lineStyle(segment.band))
             }
             Annotation("", coordinate: start) {
                 square(Theme.fg)
@@ -94,11 +102,21 @@ struct RunMapView: View {
         HStack(spacing: Theme.s3) {
             legendItem("faster", fill: Theme.signal)
             legendItem("steady", fill: Theme.fg)
-            legendItem("slower", fill: Theme.dim)
+            slowerLegendItem
             Text("than avg")
                 .foregroundStyle(Theme.dim)
         }
         .font(Theme.mono(.micro))
+    }
+
+    private var slowerLegendItem: some View {
+        HStack(spacing: 4) {
+            HLine()
+                .stroke(Theme.fg, style: StrokeStyle(lineWidth: 4, dash: [3, 3]))
+                .frame(width: 12, height: 4)
+            Text("slower")
+                .foregroundStyle(Theme.fg)
+        }
     }
 
     private func legendItem(_ title: String, fill: Color) -> some View {

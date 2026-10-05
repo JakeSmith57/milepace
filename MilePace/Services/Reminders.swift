@@ -109,7 +109,8 @@ final class Reminders: NSObject, UNUserNotificationCenterDelegate {
                                      loggedMilesByDay: milesByDay,
                                      zones: AppSettings.zones,
                                      goalMile: AppSettings.goalMile,
-                                     startDate: start)
+                                     startDate: start,
+                                     paceWindow: AppSettings.paceWindow)
     }
 
     private func makeRequest(for spec: ReminderSpec, start: Date) -> UNNotificationRequest {

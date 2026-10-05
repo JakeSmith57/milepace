@@ -19,7 +19,14 @@ struct PaceZones: Equatable {
     static let goalMileSeconds: Double = 330
     static let goalPer400: Double = 82.5
     static let minMileSeconds: Double = 330
-    static let maxMileSeconds: Double = 420
+    static let maxMileSeconds: Double = 450
+    /// The mile time used when the input is not a number.
+    static let fallbackMileSeconds: Double = 412
+
+    /// Narrowest half-width a pace target may have, in seconds per mile (`AppSettings.paceWindow`
+    /// chooses the value actually used).
+    static let defaultWindow: Double = 8
+    static let windowRange: ClosedRange<Double> = 3...15
 
     private struct Row {
         let mile: Double
@@ -35,6 +42,8 @@ struct PaceZones: Equatable {
 
     /// Anchor rows, slowest first.
     private static let rows: [Row] = [
+        Row(mile: 450, easyLo: 610, easyHi: 675, thresholdLo: 512, thresholdHi: 518,
+            intervalLo: 470, intervalHi: 476, repLo: 110, repHi: 112),
         Row(mile: 412, easyLo: 575, easyHi: 630, thresholdLo: 478, thresholdHi: 483,
             intervalLo: 438, intervalHi: 443, repLo: 102, repHi: 104),
         Row(mile: 395, easyLo: 540, easyHi: 595, thresholdLo: 455, thresholdHi: 460,
@@ -60,10 +69,10 @@ struct PaceZones: Equatable {
         )
     }
 
-    /// Zones for a mile time in seconds. Input is clamped to 330...420; times slower than the
-    /// slowest anchor row (412) use that row.
+    /// Zones for a mile time in seconds. Input is clamped to 330...450 (7:30, the slowest anchor row);
+    /// anything that is not a number is treated as 412.
     static func forMile(_ seconds: Double) -> PaceZones {
-        let raw = seconds.isFinite ? seconds : rows[0].mile
+        let raw = seconds.isFinite ? seconds : fallbackMileSeconds
         let mile = min(max(raw, minMileSeconds), maxMileSeconds)
 
         if mile >= rows[0].mile {
@@ -83,6 +92,22 @@ struct PaceZones: Equatable {
             }
         }
         return zones(from: rows[rows.count - 1])
+    }
+
+    /// `range` made at least `window` seconds either side of its middle: a range whose half-width is
+    /// under `window` becomes `mid - window ... mid + window`, a wider one is returned as it is. Cues, the
+    /// pace meter and the on-target checks use this, so a 5-second-wide threshold range does not nag.
+    static func guardRange(_ range: ClosedRange<Double>, window: Double) -> ClosedRange<Double> {
+        let width = max(0, window)
+        let half = (range.upperBound - range.lowerBound) / 2
+        guard half < width else { return range }
+        let mid = (range.lowerBound + range.upperBound) / 2
+        return (mid - width)...(mid + width)
+    }
+
+    /// `guardRange` with the window from the settings.
+    static func guardRange(_ range: ClosedRange<Double>) -> ClosedRange<Double> {
+        return guardRange(range, window: AppSettings.paceWindow)
     }
 
     /// The range for a zone. For `.repetition` the range is per 400 m, otherwise per mile.

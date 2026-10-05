@@ -22,9 +22,18 @@ struct RunView: View {
     @AppStorage(SettingsKey.metronomeVolume) private var metronomeVolume: Double = AppSettings.defaultMetronomeVolume
     @AppStorage(SettingsKey.diagnostics) private var diagnosticsEnabled: Bool = false
     @AppStorage(SettingsKey.runViewMode) private var viewMode: RunViewMode = .data
+    @AppStorage(SettingsKey.paceWindow) private var paceWindow: Double = AppSettings.defaultPaceWindow
 
+    /// The finished run shown in the summary sheet. It is already saved in `savedRecord`.
     @State private var summary: RunSummary?
+    @State private var savedRecord: RunRecord?
+    /// The plan session the run marked done, so discarding the run can reopen it.
+    @State private var completedPlanIndex: Int?
+    @State private var summaryBusy: Bool = false
     @State private var showDiagnostics: Bool = false
+    /// A run found on disk that was never finished (the app was killed or crashed during it).
+    @State private var pendingDraft: RunDraft?
+    @State private var confirmDraftDiscard: Bool = false
 
     init(isActive: Bool) {
         self.isActive = isActive
@@ -34,8 +43,9 @@ struct RunView: View {
         return PaceZones.forMile(mileTime)
     }
 
+    /// The pace-guard range, widened to at least the pace window either side of its middle.
     private var guardRange: ClosedRange<Double>? {
-        return zoneChoice.range(in: zones)
+        return zoneChoice.guardedRange(in: zones, window: paceWindow)
     }
 
     private var metronome: Metronome {
@@ -48,7 +58,7 @@ struct RunView: View {
     }
 
     private func repRange(for spec: RoadWorkoutSpec) -> ClosedRange<Double> {
-        return spec.target.range(zones: zones, goalMile: goalMile)
+        return spec.target.guardedRange(zones: zones, goalMile: goalMile, window: paceWindow)
     }
 
     private var diagnosticsVisible: Bool {
@@ -77,10 +87,12 @@ struct RunView: View {
         .instrumentScreen()
         .sheet(item: $summary) { item in
             RunSummaryView(summary: item,
+                           isBusy: summaryBusy,
                            onSave: { notes in save(item, notes: notes) },
                            onDiscard: { discard() })
         }
         .onAppear {
+            reloadDraft()
             syncWarmup()
             applyPendingRoute()
         }
@@ -96,7 +108,10 @@ struct RunView: View {
         .onChange(of: PlanStore.shared.pendingRoute) { _, _ in
             applyPendingRoute()
         }
-        .onChange(of: scenePhase) { _, _ in
+        .onChange(of: scenePhase) { _, phase in
+            if phase == .background && tracker.phase != .idle {
+                tracker.checkpoint()
+            }
             syncWarmup()
         }
         .onChange(of: diagnosticsEnabled) { _, enabled in
@@ -178,8 +193,17 @@ struct RunView: View {
                                action: { viewMode = viewMode.other })
     }
 
+    /// "[ wake ]" once the idle GPS warm-up has timed out.
+    private var wakeAccessory: StatusAccessory? {
+        guard tracker.phase == .idle, tracker.warmupTimedOut else { return nil }
+        return StatusAccessory(title: "wake", action: { tracker.wakeWarmup() })
+    }
+
     private var accessoryList: [StatusAccessory] {
         var list: [StatusAccessory] = []
+        if let wake = wakeAccessory {
+            list.append(wake)
+        }
         if let diag = diagAccessory {
             list.append(diag)
         }
@@ -201,10 +225,14 @@ struct RunView: View {
         return text
     }
 
+    private var idleCenter: String {
+        return tracker.warmupTimedOut ? "gps paused" : tracker.gpsState.label
+    }
+
     private var statusLine: some View {
         let idle = tracker.phase == .idle
         return StatusLine(left: "milepace",
-                          center: idle ? tracker.gpsState.label : activeCenter,
+                          center: idle ? idleCenter : activeCenter,
                           right: idle ? "" : formatDuration(tracker.elapsed),
                           recording: tracker.phase == .running,
                           searching: tracker.gpsState.isSearching,
@@ -233,18 +261,23 @@ struct RunView: View {
                        })
     }
 
-    @ViewBuilder
+    /// The setup list scrolls; the diagnostics panel, when open, sits between it and the start
+    /// button instead of covering them.
     private var idleContent: some View {
-        if diagnosticsVisible {
-            DiagnosticsPanel(onClose: { showDiagnostics = false })
-        } else {
-            VStack(spacing: 0) {
-                planBar
-                ScrollView {
+        VStack(spacing: 0) {
+            planBar
+            preciseLocationWarning
+            ScrollView {
+                VStack(alignment: .leading, spacing: 0) {
+                    draftBlock
                     idleSetup
                 }
-                startArea
             }
+            if diagnosticsVisible {
+                DiagnosticsPanel(onClose: { showDiagnostics = false })
+                    .frame(height: 240)
+            }
+            startArea
         }
     }
 
@@ -256,6 +289,7 @@ struct RunView: View {
             } else {
                 workoutOptions
             }
+            paceWindowRow
             metronomeSetup
             if let message = tracker.errorMessage {
                 Text(message)
@@ -273,6 +307,20 @@ struct RunView: View {
             ChoiceRow(label: "pace guard", options: zoneOptions, selection: $zoneChoice)
             ReadoutRow(key: "range /mi", value: guardRangeText)
         }
+    }
+
+    private var paceWindowSeconds: Binding<Int> {
+        return Binding(get: { Int(paceWindow.rounded()) },
+                       set: { paceWindow = Double($0) })
+    }
+
+    /// The same setting as in Set: how far off target before a speed up or slow down cue.
+    private var paceWindowRow: some View {
+        let range = Int(AppSettings.paceWindowRange.lowerBound)...Int(AppSettings.paceWindowRange.upperBound)
+        return StepperRow(title: "target window",
+                          value: paceWindowSeconds,
+                          range: range,
+                          format: { "\u{00B1}\($0) s" })
     }
 
     private var guardRangeText: String {
@@ -325,6 +373,55 @@ struct RunView: View {
         .padding(.top, Theme.s2)
     }
 
+    /// Approximate location records no distance or pace, so say so before the run starts.
+    @ViewBuilder
+    private var preciseLocationWarning: some View {
+        if tracker.isAuthorized && tracker.accuracyReduced {
+            VStack(alignment: .leading, spacing: Theme.s2) {
+                Text("precise location is off. distance and pace won't record.")
+                    .font(Theme.mono(.micro))
+                    .fixedSize(horizontal: false, vertical: true)
+                BracketButton(title: "open settings", style: .outlineOnInverted, minHeight: 48) {
+                    openSystemSettings()
+                }
+            }
+            .foregroundStyle(Theme.bg)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(Theme.s3)
+            .background(Theme.fg)
+            .padding(.horizontal, Theme.s3)
+            .padding(.top, Theme.s2)
+        }
+    }
+
+    /// "unfinished run from 6:42 am: 2.41 mi, 18:52" with a way to keep or drop it.
+    @ViewBuilder
+    private var draftBlock: some View {
+        if let draft = pendingDraft, summary == nil {
+            VStack(alignment: .leading, spacing: Theme.s2) {
+                Text(draft.summaryText())
+                    .font(Theme.mono(.body))
+                    .fixedSize(horizontal: false, vertical: true)
+                HStack(spacing: Theme.s2) {
+                    BracketButton(title: "save it", style: .outlineOnInverted, minHeight: 48) {
+                        saveDraft(draft)
+                    }
+                    BracketButton(title: confirmDraftDiscard ? "yes, discard" : "discard",
+                                  style: .outlineOnInverted,
+                                  minHeight: 48) {
+                        discardDraft()
+                    }
+                }
+            }
+            .foregroundStyle(Theme.bg)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(Theme.s3)
+            .background(Theme.fg)
+            .padding(.horizontal, Theme.s3)
+            .padding(.vertical, Theme.s2)
+        }
+    }
+
     @ViewBuilder
     private var startArea: some View {
         VStack(spacing: Theme.s2) {
@@ -369,8 +466,11 @@ struct RunView: View {
     }
 
     private var cadenceValue: String {
-        let click = metronome.isRunning ? "\(metronome.bpm)" : "off"
-        return cadenceText + " \u{2669}" + click
+        // The note glyph only appears while the click is really playing.
+        if metronome.isRunning {
+            return cadenceText + " \u{2669}\(metronome.bpm)"
+        }
+        return cadenceText + " click off"
     }
 
     /// Average cadence once there are at least two minutes of running.
@@ -545,6 +645,9 @@ struct RunView: View {
     private var pauseButton: some View {
         let style: BracketStyle = isPaused ? .signal : .plain
         return BracketButton(title: isPaused ? "resume" : "pause", style: style) {
+            // A pause or resume starts the pace guards from scratch.
+            Coach.shared.resetZoneGuard()
+            Coach.shared.resetRepGuard()
             if isPaused {
                 tracker.resume()
             } else {
@@ -578,6 +681,11 @@ struct RunView: View {
     // MARK: Actions
 
     private func startRun() {
+        // A run that was never finished is kept before a new one starts, so the new run's draft
+        // cannot replace it.
+        if let draft = pendingDraft {
+            saveDraft(draft)
+        }
         let freeRange = guardRange
         let interval = AppSettings.cueInterval
         let spec: RoadWorkoutSpec? = runMode == .workout ? selectedWorkout : nil
@@ -594,7 +702,9 @@ struct RunView: View {
         }
 
         tracker.onMile = { mile, split, average in
-            Coach.shared.announceMile(mile, split: split, average: average)
+            // No mile announcement over a rep or a recovery.
+            let suppressed = tracker.workout?.isInRepOrRecovery ?? false
+            Coach.shared.announceMile(mile, split: split, average: average, suppressed: suppressed)
         }
         tracker.onTick = { pace in
             if let workout = tracker.workout {
@@ -624,13 +734,39 @@ struct RunView: View {
         }
     }
 
+    /// Stopping saves the run at once, then shows it. Nothing the runner does on the summary sheet can
+    /// lose it: save only adds notes, and discard asks twice.
     private func endRun() {
         metronome.stop()
-        summary = tracker.stop()
+        Coach.shared.stopSpeaking()
+        let result = tracker.stop()
         tracker.onMile = nil
         tracker.onTick = nil
         tracker.onDistanceCue = nil
         tracker.onWorkoutEvent = nil
+
+        let record = RunRecord(date: result.date,
+                               distanceMeters: result.distanceMeters,
+                               durationSeconds: result.durationSeconds,
+                               averagePace: result.averagePace,
+                               splits: result.splits,
+                               notes: "",
+                               route: result.route,
+                               averageCadence: result.averageCadence ?? 0,
+                               workoutName: result.workoutName ?? "")
+        modelContext.insert(record)
+        do {
+            try modelContext.save()
+            RunDraftStore.clear()
+        } catch {
+            // The draft file stays as a second copy until a later save works.
+            Diagnostics.shared.log(.state, "run save failed: \(error.localizedDescription)")
+        }
+        completedPlanIndex = store.completeActive(.run(miles: result.distanceMeters / metersPerMile,
+                                                       workoutName: result.workoutName))
+        savedRecord = record
+        summaryBusy = false
+        summary = result
     }
 
     private func toggleMetronome() {
@@ -649,28 +785,86 @@ struct RunView: View {
         metronome.setBPM(bpm)
     }
 
+    // MARK: Summary sheet
+
+    /// "[ save run ]": the run is already stored; this adds the notes and the pedometer's cadence for
+    /// the whole run, then closes the sheet.
     private func save(_ item: RunSummary, notes: String) {
-        let record = RunRecord(date: item.date,
-                               distanceMeters: item.distanceMeters,
-                               durationSeconds: item.durationSeconds,
-                               averagePace: item.averagePace,
-                               splits: item.splits,
-                               notes: notes,
-                               route: item.route,
-                               averageCadence: item.averageCadence ?? 0,
-                               workoutName: item.workoutName ?? "")
-        modelContext.insert(record)
-        store.completeActive(.run(miles: item.distanceMeters / metersPerMile, workoutName: item.workoutName))
+        guard !summaryBusy, let record = savedRecord else { return }
+        summaryBusy = true
+        let cadence = tracker.cadence
+        Task { @MainActor in
+            if let plan = item.cadencePlan,
+               let refined = await cadence.refinedAverageSPM(plan: plan, movingSeconds: item.durationSeconds) {
+                record.averageCadence = refined
+            }
+            record.notes = notes
+            try? modelContext.save()
+            RunDraftStore.clear()
+            closeSummary()
+        }
+    }
+
+    /// "[ yes, discard ]": removes the saved run, and reopens the plan session it had marked done.
+    private func discard() {
+        guard !summaryBusy else { return }
+        if let record = savedRecord {
+            modelContext.delete(record)
+            try? modelContext.save()
+        }
+        if let index = completedPlanIndex {
+            store.reopen(index)
+        } else {
+            store.discardActive()
+        }
+        RunDraftStore.clear()
+        closeSummary()
+    }
+
+    private func closeSummary() {
         summary = nil
+        savedRecord = nil
+        completedPlanIndex = nil
+        summaryBusy = false
         tracker.reset()
+        reloadDraft()
         syncWarmup()
     }
 
-    private func discard() {
-        store.discardActive()
-        summary = nil
-        tracker.reset()
-        syncWarmup()
+    // MARK: Unfinished run
+
+    private func reloadDraft() {
+        guard tracker.phase == .idle, summary == nil else { return }
+        let draft = RunDraftStore.load()
+        if draft != pendingDraft {
+            pendingDraft = draft
+        }
+        if draft == nil {
+            confirmDraftDiscard = false
+        }
+    }
+
+    /// "[ save it ]": the run on disk becomes a saved run.
+    private func saveDraft(_ draft: RunDraft) {
+        modelContext.insert(draft.makeRecord())
+        do {
+            try modelContext.save()
+        } catch {
+            return
+        }
+        RunDraftStore.clear()
+        pendingDraft = nil
+        confirmDraftDiscard = false
+    }
+
+    private func discardDraft() {
+        if confirmDraftDiscard {
+            RunDraftStore.clear()
+            pendingDraft = nil
+            confirmDraftDiscard = false
+        } else {
+            confirmDraftDiscard = true
+        }
     }
 
     private func openSystemSettings() {
@@ -679,13 +873,16 @@ struct RunView: View {
     }
 }
 
-/// Shown after a run: map, numbers, splits and notes, then save or discard.
+/// Shown after a run: map, numbers, splits and notes. The run is already saved; "save run" keeps the
+/// notes and "discard" (asked twice) deletes it.
 struct RunSummaryView: View {
     let summary: RunSummary
+    let isBusy: Bool
     let onSave: (String) -> Void
     let onDiscard: () -> Void
 
     @State private var notes: String = ""
+    @State private var confirmDiscard: Bool = false
 
     var body: some View {
         VStack(spacing: 0) {
@@ -755,11 +952,17 @@ struct RunSummaryView: View {
 
     private var actions: some View {
         VStack(spacing: Theme.s2) {
-            BracketButton(title: "save run", style: .signal) {
+            BracketButton(title: "save run", style: .signal, isEnabled: !isBusy) {
                 onSave(notes)
             }
-            BracketButton(title: "discard") {
-                onDiscard()
+            BracketButton(title: confirmDiscard ? "yes, discard" : "discard",
+                          style: confirmDiscard ? .inverted : .plain,
+                          isEnabled: !isBusy) {
+                if confirmDiscard {
+                    onDiscard()
+                } else {
+                    confirmDiscard = true
+                }
             }
         }
         .padding(.top, Theme.s4)

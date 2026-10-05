@@ -54,7 +54,7 @@ struct WorkoutSpec: Codable, Equatable, Hashable {
     }
 }
 
-enum TrackState: Equatable {
+enum TrackState: Equatable, Codable {
     case ready
     /// Both values are one-based.
     case running(rep: Int, lap: Int)
@@ -78,12 +78,17 @@ enum SplitVerdict: Equatable {
 
 enum TapOutcome: Equatable {
     case ignored
+    /// A lap tap less than `TrackWorkout.minLapSeconds` after the lap began: not counted.
+    case tooSoon
     case startedRep
     case lapDone(split: Double, delta: Double, repFinished: Bool, workoutFinished: Bool)
 }
 
 /// Pure session state machine for a track workout.
-struct TrackWorkout {
+struct TrackWorkout: Codable, Equatable {
+    /// A lap tap sooner than this after the lap (or rep, or GO) began is taken for a bounce and ignored.
+    static let minLapSeconds: Double = 10
+
     struct LapResult: Equatable {
         var rep: Int
         var lap: Int
@@ -99,7 +104,8 @@ struct TrackWorkout {
     private(set) var repStart: Date?
     private(set) var lapStart: Date?
 
-    private struct Snapshot {
+    /// What one undo step restores.
+    struct UndoSnapshot: Codable, Equatable {
         var state: TrackState
         var lapSplits: [[Double]]
         var repTimes: [Double]
@@ -108,7 +114,7 @@ struct TrackWorkout {
         var lapStart: Date?
     }
 
-    private var history: [Snapshot] = []
+    private var history: [UndoSnapshot] = []
 
     init(spec: WorkoutSpec) {
         self.spec = spec
@@ -236,6 +242,9 @@ struct TrackWorkout {
 
         case .running(let rep, let lap):
             guard let started = lapStart else { return .ignored }
+            if now.timeIntervalSince(started) < TrackWorkout.minLapSeconds {
+                return .tooSoon
+            }
             pushSnapshot()
 
             let split = max(0, now.timeIntervalSince(started))
@@ -292,9 +301,10 @@ struct TrackWorkout {
         }
     }
 
-    /// Ends the current rest early. The runner still taps GO to start the next rep.
+    /// Ends the current rest early. The runner still taps GO to start the next rep. Undo brings the rest back.
     mutating func skipRest(now: Date) {
         guard isResting, !isRestComplete else { return }
+        pushSnapshot()
         isRestComplete = true
     }
 
@@ -323,11 +333,11 @@ struct TrackWorkout {
     }
 
     private mutating func pushSnapshot() {
-        history.append(Snapshot(state: state,
-                                lapSplits: lapSplits,
-                                repTimes: repTimes,
-                                isRestComplete: isRestComplete,
-                                repStart: repStart,
-                                lapStart: lapStart))
+        history.append(UndoSnapshot(state: state,
+                                    lapSplits: lapSplits,
+                                    repTimes: repTimes,
+                                    isRestComplete: isRestComplete,
+                                    repStart: repStart,
+                                    lapStart: lapStart))
     }
 }

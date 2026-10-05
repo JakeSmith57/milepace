@@ -347,26 +347,47 @@ struct StepperRow: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            HStack(spacing: Theme.s2) {
-                Text(ReadoutFormat.leader(title, width: keyWidth))
-                    .font(Theme.mono(.body))
-                    .foregroundStyle(Theme.dim)
-                    .lineLimit(1)
-                    .fixedSize()
-                Spacer(minLength: 0)
-                stepButton("[\u{2212}]", delta: -step, hint: "decrease")
-                Text(format(value))
-                    .font(Theme.mono(.body))
-                    .foregroundStyle(Theme.fg)
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.6)
-                    .frame(minWidth: 70)
-                stepButton("[+]", delta: step, hint: "increase")
+            // Label and control side by side; stacked (label above) when the row is too narrow, such
+            // as on a 320 pt wide screen.
+            ViewThatFits(in: .horizontal) {
+                HStack(spacing: Theme.s2) {
+                    label
+                    Spacer(minLength: 0)
+                    controls
+                }
+                VStack(alignment: .leading, spacing: 0) {
+                    label
+                    HStack(spacing: 0) {
+                        Spacer(minLength: 0)
+                        controls
+                    }
+                }
             }
             .padding(.vertical, 2)
             if ruled {
                 DashedRule()
             }
+        }
+    }
+
+    private var label: some View {
+        Text(ReadoutFormat.leader(title, width: keyWidth))
+            .font(Theme.mono(.body))
+            .foregroundStyle(Theme.dim)
+            .lineLimit(1)
+            .fixedSize()
+    }
+
+    private var controls: some View {
+        HStack(spacing: Theme.s2) {
+            stepButton("[\u{2212}]", delta: -step, hint: "decrease")
+            Text(format(value))
+                .font(Theme.mono(.body))
+                .foregroundStyle(Theme.fg)
+                .lineLimit(1)
+                .minimumScaleFactor(0.8)
+                .frame(minWidth: 70)
+            stepButton("[+]", delta: step, hint: "increase")
         }
     }
 
@@ -377,7 +398,7 @@ struct StepperRow: View {
             Text(label)
                 .font(Theme.mono(.body))
                 .foregroundStyle(Theme.fg)
-                .frame(minHeight: 44)
+                .frame(minWidth: 44, minHeight: 44)
                 .contentShape(Rectangle())
         }
         .buttonStyle(InstrumentButtonStyle())
@@ -400,27 +421,26 @@ struct FieldRow: View {
     var note: String? = nil
     var keyboard: UIKeyboardType = .numbersAndPunctuation
     var fieldWidth: CGFloat = 120
+    /// Called when the runner submits the field or leaves it, not on every keystroke.
+    var onCommit: (() -> Void)? = nil
+
+    @FocusState private var focused: Bool
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            HStack(spacing: Theme.s2) {
-                Text(ReadoutFormat.leader(key, width: 10))
-                    .font(Theme.mono(.body))
-                    .foregroundStyle(Theme.dim)
-                    .lineLimit(1)
-                    .fixedSize()
-                Spacer(minLength: 0)
-                TextField(placeholder, text: $text)
-                    .font(Theme.mono(.body))
-                    .keyboardType(keyboard)
-                    .multilineTextAlignment(.trailing)
-                    .textInputAutocapitalization(.never)
-                    .autocorrectionDisabled()
-                    .tint(Theme.fg)
-                    .foregroundStyle(Theme.fg)
-                    .padding(.horizontal, Theme.s2)
-                    .frame(width: fieldWidth, height: 44)
-                    .overlay(Rectangle().strokeBorder(Theme.fg, lineWidth: Theme.rule))
+            // Side by side; the field goes under the key when the row is too narrow for both.
+            ViewThatFits(in: .horizontal) {
+                HStack(spacing: Theme.s2) {
+                    keyText
+                    Spacer(minLength: 0)
+                    field
+                        .frame(width: fieldWidth)
+                }
+                VStack(alignment: .leading, spacing: Theme.s1) {
+                    keyText
+                    field
+                        .frame(maxWidth: .infinity)
+                }
             }
             .padding(.vertical, Theme.s1)
             if let note = note {
@@ -431,6 +451,37 @@ struct FieldRow: View {
             }
             DashedRule()
         }
+    }
+
+    private var keyText: some View {
+        Text(ReadoutFormat.leader(key, width: 10))
+            .font(Theme.mono(.body))
+            .foregroundStyle(Theme.dim)
+            .lineLimit(1)
+            .fixedSize()
+    }
+
+    private var field: some View {
+        TextField(placeholder, text: $text)
+            .font(Theme.mono(.body))
+            .keyboardType(keyboard)
+            .multilineTextAlignment(.trailing)
+            .textInputAutocapitalization(.never)
+            .autocorrectionDisabled()
+            .tint(Theme.fg)
+            .foregroundStyle(Theme.fg)
+            .focused($focused)
+            .onSubmit {
+                onCommit?()
+            }
+            .onChange(of: focused) { _, isFocused in
+                if !isFocused {
+                    onCommit?()
+                }
+            }
+            .padding(.horizontal, Theme.s2)
+            .frame(height: 44)
+            .overlay(Rectangle().strokeBorder(Theme.fg, lineWidth: Theme.rule))
     }
 }
 

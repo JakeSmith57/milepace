@@ -8,6 +8,7 @@ import UserNotifications
 struct TodayView: View {
     @AppStorage(SettingsKey.mileTime) private var mileTime: Double = AppSettings.defaultMileTime
     @AppStorage(SettingsKey.goalMile) private var goalMile: Double = AppSettings.defaultGoalMile
+    @AppStorage(SettingsKey.paceWindow) private var paceWindow: Double = AppSettings.defaultPaceWindow
     @AppStorage(SettingsKey.reminderMorningMinutes) private var morningMinutes: Int = ReminderSettings.defaultMorningMinutes
     @AppStorage(SettingsKey.reminderEveningMinutes) private var eveningMinutes: Int = ReminderSettings.defaultEveningMinutes
 
@@ -67,15 +68,17 @@ struct TodayView: View {
                 syncReminders(refreshPermission: true)
             }
         }
-        .onChange(of: mileTime) { _, _ in
-            Reminders.shared.reschedule()
-        }
-        .onChange(of: goalMile) { _, _ in
+        .onChange(of: paceInputs) { _, _ in
             Reminders.shared.reschedule()
         }
         .onReceive(ticker) { _ in
             store.refresh()
         }
+    }
+
+    /// The settings the reminder text is built from; any change rebuilds the reminders.
+    private var paceInputs: [Double] {
+        return [mileTime, goalMile, paceWindow]
     }
 
     private var loggedRuns: [LoggedRun] {
@@ -184,7 +187,7 @@ struct TodayView: View {
                 .font(Theme.mono(.body))
                 .fixedSize(horizontal: false, vertical: true)
             missedButtons(schedule, index, result)
-            missedNote(schedule, result)
+            missedNote(schedule, index, result)
         }
         .foregroundStyle(Theme.bg)
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -192,9 +195,9 @@ struct TodayView: View {
         .background(Theme.fg)
     }
 
-    /// The day a dry run moved the missed session to; nil when it was skipped or left alone.
+    /// The day a dry run moved the missed session to; nil when it would be skipped or left alone.
     private func moveTarget(_ schedule: PlanSchedule, _ index: Int, _ result: PushBackResult) -> Int? {
-        guard result.dropped.isEmpty, result.progress != schedule.progress else { return nil }
+        guard !result.dropped.contains(index), result.progress != schedule.progress else { return nil }
         let moved = PlanSchedule(plan: schedule.plan,
                                  progress: result.progress,
                                  startWeekday: schedule.startWeekday)
@@ -218,12 +221,13 @@ struct TodayView: View {
     }
 
     @ViewBuilder
-    private func missedNote(_ schedule: PlanSchedule, _ result: PushBackResult) -> some View {
-        if !result.dropped.isEmpty {
+    private func missedNote(_ schedule: PlanSchedule, _ index: Int, _ result: PushBackResult) -> some View {
+        if result.dropped.contains(index) {
             micro(PlanText.noRoomNote)
-        } else if let replaced = result.replaced {
-            micro(PlanText.replacesNote(dayLabel: dayLabel(schedule.dayOffset(replaced)),
-                                        title: schedule.plan.sessions[replaced].title))
+        } else if moveTarget(schedule, index, result) != nil {
+            micro(PlanText.pushNote(moved: result.moved.count,
+                                    dropped: result.dropped.count,
+                                    raceLabel: dayLabel(schedule.raceDayOffset)))
         }
     }
 
@@ -295,7 +299,7 @@ struct TodayView: View {
     }
 
     private func detailLines(_ session: PlanSession) -> some View {
-        let lines = PlanText.lines(for: session, zones: zones, goalMile: goalMile)
+        let lines = PlanText.lines(for: session, zones: zones, goalMile: goalMile, window: paceWindow)
         return VStack(alignment: .leading, spacing: 2) {
             ForEach(Array(lines.enumerated()), id: \.offset) { item in
                 Text(item.element)

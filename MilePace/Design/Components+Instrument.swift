@@ -90,13 +90,20 @@ struct StatusLine: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            HStack(spacing: 0) {
-                leftGroup
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                centerGroup
-                    .frame(maxWidth: .infinity, alignment: .center)
-                rightGroup
-                    .frame(maxWidth: .infinity, alignment: .trailing)
+            // The center text is the first thing to go when the line does not fit.
+            ViewThatFits(in: .horizontal) {
+                HStack(spacing: Theme.s2) {
+                    leftGroup
+                    Spacer(minLength: Theme.s2)
+                    centerGroup
+                    Spacer(minLength: Theme.s2)
+                    rightGroup
+                }
+                HStack(spacing: Theme.s2) {
+                    leftGroup
+                    Spacer(minLength: Theme.s2)
+                    rightGroup
+                }
             }
             .padding(.horizontal, Theme.s3)
             .frame(minHeight: 36)
@@ -109,7 +116,7 @@ struct StatusLine: View {
             .font(Theme.mono(.micro))
             .foregroundStyle(Theme.fg)
             .lineLimit(1)
-            .minimumScaleFactor(0.7)
+            .minimumScaleFactor(0.9)
     }
 
     private var leftGroup: some View {
@@ -127,8 +134,8 @@ struct StatusLine: View {
                 .font(Theme.mono(.micro))
                 .foregroundStyle(Theme.fg)
                 .lineLimit(1)
-                .minimumScaleFactor(0.7)
-                .padding(.vertical, Theme.s2)
+                .minimumScaleFactor(0.9)
+                .frame(minHeight: 44)
                 .contentShape(Rectangle())
         }
         .buttonStyle(InstrumentButtonStyle())

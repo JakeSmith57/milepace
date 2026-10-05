@@ -24,23 +24,57 @@ enum PlanText {
         return text
     }
 
-    /// What the missed card says when no day this week has room.
-    static let noRoomNote = "no room this week. it'll be skipped."
+    /// What the missed card says when the session itself would land on or after the day before the race.
+    static let noRoomNote = "no room before the race. it'll be skipped."
 
-    /// The missed card's main button: "do it today", or "move to wed oct 21" for a later day.
-    /// `label` is the target day's label.
+    /// The missed card's main button: "do it today", or "move to wed oct 21" when the first allowed day
+    /// is later. `label` is the target day's label.
     static func moveTitle(day: Int, today: Int, label: String) -> String {
         return day == today ? "do it today" : "move to " + label
     }
 
-    /// The line under the button when the missed session takes an easy session's day: "replaces thu
-    /// 3 mi easy." `dayLabel` is the easy session's day label ("thu oct 22").
-    static func replacesNote(dayLabel: String, title: String) -> String {
-        return "replaces " + String(dayLabel.prefix(3)) + " " + title + "."
+    /// "1 session", "3 sessions".
+    static func sessionCount(_ count: Int) -> String {
+        return count == 1 ? "1 session" : "\(count) sessions"
+    }
+
+    /// What the missed card says before "do it today" is confirmed: how many other sessions move later
+    /// and how many are dropped to keep the race day. `raceLabel` is the race day's label ("mon jun 21").
+    static func pushNote(moved: Int, dropped: Int, raceLabel: String) -> String {
+        if moved <= 0 && dropped <= 0 {
+            return "doing it today moves nothing else."
+        }
+        var text = "doing it today"
+        if moved > 0 {
+            text += " moves " + sessionCount(moved) + " later"
+        }
+        if dropped > 0 {
+            text += (moved > 0 ? " and drops " : " drops ") + sessionCount(dropped)
+                + " to keep the race on " + raceLabel + "."
+        } else {
+            text += "."
+        }
+        return text
+    }
+
+    /// "target \u{2264} 6:35" for a time trial that has a goal time; nil for everything else.
+    static func trialTarget(for session: PlanSession) -> String? {
+        guard session.kind == .timeTrial, let seconds = session.targetSeconds, seconds > 0 else { return nil }
+        return "target \u{2264} " + formatPace(secondsPerMile: seconds)
+    }
+
+    /// "goal 5:30": the race's own goal time, or `goalMile` when the plan gives none.
+    static func raceGoal(for session: PlanSession, goalMile: Double) -> String {
+        let seconds = session.targetSeconds ?? goalMile
+        return "goal " + formatPace(secondsPerMile: seconds)
     }
 
     /// The detail lines under a session title, in display order.
-    static func lines(for session: PlanSession, zones: PaceZones, goalMile: Double) -> [String] {
+    /// `window` is the pace window setting: ranges narrower than twice that are widened to it.
+    static func lines(for session: PlanSession,
+                      zones: PaceZones,
+                      goalMile: Double,
+                      window: Double = PaceZones.defaultWindow) -> [String] {
         var lines: [String] = []
         switch session.kind {
         case .easy, .long:
@@ -48,32 +82,51 @@ enum PlanText {
             if let miles = session.miles {
                 line = PlanFormat.miles(miles) + " mi, "
             }
-            line += "conversational, " + ReadoutFormat.paceRange(zones.easy) + " /mi"
+            line += "conversational, " + ReadoutFormat.paceRange(PaceZones.guardRange(zones.easy, window: window)) + " /mi"
             lines.append(line)
         case .road:
             if let spec = roadSpec(for: session) {
-                let range = spec.target.range(zones: zones, goalMile: goalMile)
+                let range = spec.target.guardedRange(zones: zones, goalMile: goalMile, window: window)
                 lines.append(spec.target.rawValue + " " + ReadoutFormat.paceRange(range) + " /mi")
             }
         case .track:
             if let spec = trackSpec(for: session, zones: zones, goalMile: goalMile) {
                 lines.append(trackLine(spec))
             }
-        case .timeTrial, .race:
-            lines.append("goal " + formatPace(secondsPerMile: goalMile))
+        case .timeTrial:
+            if let target = trialTarget(for: session) {
+                lines.append(target)
+            }
+        case .race:
+            lines.append(raceGoal(for: session, goalMile: goalMile))
         case .other:
             break
         }
-        if let note = session.note, !note.isEmpty {
+        if let note = session.note, !note.isEmpty, !lines.contains(where: { sameText($0, note) }) {
             lines.append(note)
         }
         return lines
     }
 
-    /// The detail lines as one sentence-style string: "goal 5:30. target \u{2264} 6:35." Empty when
-    /// there is nothing to say.
-    static func detail(for session: PlanSession, zones: PaceZones, goalMile: Double) -> String {
-        let parts = lines(for: session, zones: zones, goalMile: goalMile).map { line -> String in
+    /// Whether two lines say the same thing, ignoring case, spaces and a final full stop.
+    static func sameText(_ left: String, _ right: String) -> Bool {
+        func normal(_ text: String) -> String {
+            var trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+            while trimmed.hasSuffix(".") {
+                trimmed.removeLast()
+            }
+            return trimmed
+        }
+        return normal(left) == normal(right)
+    }
+
+    /// The detail lines as one sentence-style string: "target \u{2264} 6:35. keep the first lap easy."
+    /// Empty when there is nothing to say.
+    static func detail(for session: PlanSession,
+                       zones: PaceZones,
+                       goalMile: Double,
+                       window: Double = PaceZones.defaultWindow) -> String {
+        let parts = lines(for: session, zones: zones, goalMile: goalMile, window: window).map { line -> String in
             var trimmed = line
             while trimmed.hasSuffix(".") {
                 trimmed.removeLast()

@@ -26,6 +26,7 @@ enum SettingsKey {
     static let reminderWeekly = "reminderWeekly"
     static let reminderMorningMinutes = "reminderMorningMinutes"
     static let reminderEveningMinutes = "reminderEveningMinutes"
+    static let paceWindow = "paceWindowSeconds"
 }
 
 /// Light, dark or follow the system.
@@ -98,15 +99,24 @@ enum RunZoneTarget: String, CaseIterable, Identifiable {
         case .threshold: return zones.threshold
         }
     }
+
+    /// `range(in:)` widened to at least `window` seconds either side of its middle (`PaceZones.guardRange`).
+    func guardedRange(in zones: PaceZones, window: Double) -> ClosedRange<Double>? {
+        guard let range = range(in: zones) else { return nil }
+        return PaceZones.guardRange(range, window: window)
+    }
 }
 
 /// Typed access to settings for non-view code (Coach, etc.).
 enum AppSettings {
     static let defaultMileTime: Double = 412
     static let defaultGoalMile: Double = 330
-    static let validMileRange: ClosedRange<Double> = 240...720
+    /// Mile and goal times the settings accept: 5:00 to 8:30.
+    static let validMileRange: ClosedRange<Double> = 300...510
     static let defaultMetronomeBPM: Int = 166
     static let defaultMetronomeVolume: Double = 0.6
+    static let defaultPaceWindow: Double = PaceZones.defaultWindow
+    static let paceWindowRange: ClosedRange<Double> = PaceZones.windowRange
 
     static func registerDefaults() {
         UserDefaults.standard.register(defaults: [
@@ -131,7 +141,8 @@ enum AppSettings {
             SettingsKey.reminderTimeTrial: true,
             SettingsKey.reminderWeekly: true,
             SettingsKey.reminderMorningMinutes: ReminderSettings.defaultMorningMinutes,
-            SettingsKey.reminderEveningMinutes: ReminderSettings.defaultEveningMinutes
+            SettingsKey.reminderEveningMinutes: ReminderSettings.defaultEveningMinutes,
+            SettingsKey.paceWindow: defaultPaceWindow
         ])
     }
 
@@ -182,6 +193,14 @@ enum AppSettings {
 
     static var metronomeVolume: Double {
         return min(max(double(SettingsKey.metronomeVolume, fallback: defaultMetronomeVolume), 0.1), 1.0)
+    }
+
+    /// How far off the middle of a target a pace may be before it counts as off target, in seconds per
+    /// mile: at least `mid +/- paceWindow`. 3 to 15, 8 unless changed.
+    static var paceWindow: Double {
+        let value = double(SettingsKey.paceWindow, fallback: defaultPaceWindow)
+        guard value.isFinite else { return defaultPaceWindow }
+        return min(max(value, paceWindowRange.lowerBound), paceWindowRange.upperBound)
     }
 
     static var reminderSettings: ReminderSettings {

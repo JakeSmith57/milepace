@@ -83,6 +83,19 @@ struct ZoneGuard {
     }
 }
 
+/// Whether the whole-mile announcement ("Mile 2. Split ...") is spoken.
+enum MileAnnouncement {
+    /// Never while a workout rep or recovery is running, never when the "announce each mile" setting is
+    /// off, and never with 1 mi pace cues on, because those cues replace it.
+    static func shouldAnnounce(interval: CueInterval, announceSetting: Bool, suppressed: Bool) -> Bool {
+        if suppressed || !announceSetting { return false }
+        switch interval {
+        case .off, .quarter, .half: return true
+        case .mile: return false
+        }
+    }
+}
+
 /// Voice announcements and haptics.
 @MainActor
 final class Coach: NSObject, AVSpeechSynthesizerDelegate {
@@ -102,17 +115,11 @@ final class Coach: NSObject, AVSpeechSynthesizerDelegate {
 
     // MARK: Run announcements
 
-    func announceMile(_ mile: Int, split: Double, average: Double?) {
-        // Cue interval Off keeps the v1.0 behavior. Quarter and half always announce whole miles.
-        // Mile cues replace this announcement entirely.
-        switch AppSettings.cueInterval {
-        case .off:
-            guard AppSettings.announceMiles else { return }
-        case .quarter, .half:
-            break
-        case .mile:
-            return
-        }
+    /// `suppressed` is true while a guided workout is in a rep or recovery, so nothing talks over it.
+    func announceMile(_ mile: Int, split: Double, average: Double?, suppressed: Bool = false) {
+        guard MileAnnouncement.shouldAnnounce(interval: AppSettings.cueInterval,
+                                              announceSetting: AppSettings.announceMiles,
+                                              suppressed: suppressed) else { return }
         var text = "Mile \(mile). Split \(spokenMinutesSeconds(split))."
         if let average = average {
             text += " Average \(spokenCompact(average))."
@@ -229,6 +236,13 @@ final class Coach: NSObject, AVSpeechSynthesizerDelegate {
         guard AppSettings.haptics else { return }
         let generator = UINotificationFeedbackGenerator()
         generator.notificationOccurred(.success)
+    }
+
+    /// A light tap for a lap press that was ignored because it came too soon.
+    func tooSoonHaptic() {
+        guard AppSettings.haptics else { return }
+        let generator = UIImpactFeedbackGenerator(style: .light)
+        generator.impactOccurred()
     }
 
     func restEndHaptic() {

@@ -21,6 +21,12 @@ enum RepTarget: String, Codable, CaseIterable, Hashable {
         }
     }
 
+    /// `range(zones:goalMile:)` widened to at least `window` seconds either side of its middle, for cues,
+    /// the pace meter and the on-target checks. The goal range becomes the goal pace plus or minus `window`.
+    func guardedRange(zones: PaceZones, goalMile: Double, window: Double) -> ClosedRange<Double> {
+        return PaceZones.guardRange(range(zones: zones, goalMile: goalMile), window: window)
+    }
+
     var spokenName: String {
         switch self {
         case .threshold: return "threshold"

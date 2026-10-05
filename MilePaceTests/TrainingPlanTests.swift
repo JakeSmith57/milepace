@@ -143,7 +143,7 @@ final class TrainingPlanTests: XCTestCase {
         XCTAssertEqual(PlanProgress.restored(from: Data("nope".utf8), planVersion: 1), PlanProgress())
     }
 
-    // MARK: Push back (swap)
+    // MARK: Push back (ripple)
 
     func testSwapPlanDayOffsets() throws {
         let plan = try swapSchedule()
@@ -152,137 +152,164 @@ final class TrainingPlanTests: XCTestCase {
         XCTAssertEqual(plan.raceDayOffset, 26)
     }
 
-    func testAKeySessionSwapsTodaysEasySession() throws {
+    func testAMissedSessionTakesTodayAndPushesEverythingBehindIt() throws {
         let plan = try swapSchedule()
-        // The long run (day 0) was missed; today is Tuesday day 1 and holds a 3 mi easy run.
+        // The long run (day 0) was missed; today is Tuesday day 1. Every later session moves to the next
+        // open day (Wednesday and Sunday are closed) until the road session (day 12) can keep its day.
         let result = plan.pushingBack(missed: 0, today: 1)
         let pushed = try swapSchedule(result.progress)
-        XCTAssertEqual(pushed.dayOffset(0), 1)
-        XCTAssertEqual(result.replaced, 1)
+        XCTAssertEqual(result.moved, [1, 2, 3, 4, 5, 6, 7])
         XCTAssertEqual(result.dropped, [])
-        XCTAssertEqual(pushed.status(1), .skipped)
-        // Nothing else moved or changed.
-        XCTAssertEqual(result.progress.dayOverrides, [PlanProgress.key(0): 1])
-        XCTAssertEqual(result.progress.statuses, [PlanProgress.key(1): .skipped])
-        XCTAssertEqual((1..<17).map { pushed.dayOffset($0) },
-                       [1, 3, 4, 5, 7, 8, 10, 12, 14, 15, 17, 19, 21, 24, 25, 26])
+        XCTAssertEqual((0..<9).map { pushed.dayOffset($0) }, [1, 3, 4, 5, 7, 8, 10, 11, 12])
+        // Everything from the road session on is where the plan put it.
+        XCTAssertEqual((9..<17).map { pushed.dayOffset($0) }, [14, 15, 17, 19, 21, 24, 25, 26])
+        XCTAssertEqual(result.progress.statuses, [:])
         XCTAssertEqual(pushed.todays(today: 1), [0])
     }
 
-    func testAnEmptyDayTakesTheMissedSessionWithoutReplacingAnything() throws {
-        // The road session (day 12) is skipped, so Friday day 11 holds nothing and has no hard
-        // neighbour left for the missed track session (day 7).
-        let plan = try swapSchedule(try swapSchedule().skipping(8))
-        let result = plan.pushingBack(missed: 5, today: 11)
-        XCTAssertEqual(try swapSchedule(result.progress).dayOffset(5), 11)
-        XCTAssertNil(result.replaced)
+    func testTheRippleStopsAtTheFirstSessionThatCanKeepItsDay() throws {
+        let plan = try swapSchedule()
+        // The long run (Tuesday day 8) was missed; today is Wednesday day 9, which is closed, so it takes
+        // Thursday. The 3 mi easy run on Thursday moves to Friday, and the road session on Saturday stays.
+        let result = plan.pushingBack(missed: 6, today: 9)
+        let pushed = try swapSchedule(result.progress)
+        XCTAssertEqual(pushed.dayOffset(6), 10)
+        XCTAssertEqual(pushed.dayOffset(7), 11)
+        XCTAssertEqual(pushed.dayOffset(8), 12)
+        XCTAssertEqual(result.moved, [7])
         XCTAssertEqual(result.dropped, [])
-        XCTAssertEqual(result.progress.statuses, [PlanProgress.key(8): .skipped])
+        XCTAssertEqual(result.progress.dayOverrides, [PlanProgress.key(6): 10, PlanProgress.key(7): 11])
     }
 
-    func testWhenTodayHoldsAWorkoutItLandsOnTheNextEasyDayThisWeek() throws {
+    func testSessionsNeverLandOnWednesdaysOrSundays() throws {
         let plan = try swapSchedule()
-        // The track session (Monday day 7) was missed. Today, Tuesday day 8, holds a long run, Wednesday
-        // is closed, so it replaces Thursday's 3 mi easy run on day 10.
-        let result = plan.pushingBack(missed: 5, today: 8)
-        let pushed = try swapSchedule(result.progress)
-        XCTAssertEqual(pushed.dayOffset(5), 10)
-        XCTAssertEqual(result.replaced, 7)
-        XCTAssertEqual(pushed.status(7), .skipped)
-        XCTAssertNil(pushed.status(6))
-        XCTAssertEqual(pushed.dayOffset(6), 8)
-        XCTAssertEqual(result.progress.dayOverrides, [PlanProgress.key(5): 10])
-    }
-
-    func testWednesdaysAreSkipped() throws {
-        let plan = try swapSchedule()
-        // Wednesday day 2 holds nothing, but sessions never go there: the long run lands on Thursday.
         let result = plan.pushingBack(missed: 0, today: 2)
-        XCTAssertEqual(try swapSchedule(result.progress).dayOffset(0), 3)
-        XCTAssertEqual(result.replaced, 2)
-    }
-
-    func testLongRunsIgnoreTheHardSessionRule() throws {
-        let plan = try swapSchedule()
-        // Thursday day 3 is the day before the track session (day 4); a long run may still go there.
-        let result = plan.pushingBack(missed: 0, today: 3)
-        XCTAssertEqual(try swapSchedule(result.progress).dayOffset(0), 3)
-        XCTAssertEqual(result.replaced, 2)
-    }
-
-    func testHardSessionsStayOffNeighbouringDays() throws {
-        let plan = try swapSchedule()
-        // The road session (Saturday day 12) was missed; today is Monday day 14. Monday is next to
-        // Tuesday's track session and Tuesday holds it, Wednesday is closed, so it goes to Thursday.
-        let result = plan.pushingBack(missed: 8, today: 14)
         let pushed = try swapSchedule(result.progress)
-        XCTAssertEqual(pushed.dayOffset(8), 17)
-        XCTAssertEqual(result.replaced, 11)
-        XCTAssertNil(pushed.status(9))
-
-        // With Tuesday's track session skipped nothing is in the way of Monday any more.
-        let freed = try swapSchedule(plan.skipping(10))
-        let early = freed.pushingBack(missed: 8, today: 14)
-        XCTAssertEqual(try swapSchedule(early.progress).dayOffset(8), 14)
-        XCTAssertEqual(early.replaced, 9)
+        for index in 0..<16 {
+            let weekday = pushed.weekdayNumber(ofDay: pushed.dayOffset(index))
+            XCTAssertNotEqual(weekday, 3, "session \(index)")
+            XCTAssertNotEqual(weekday, 7, "session \(index)")
+        }
+        // Wednesday day 2 is closed, so the missed session takes Thursday.
+        XCTAssertEqual(pushed.dayOffset(0), 3)
     }
 
-    func testNoRoomSkipsTheMissedSession() throws {
+    func testEasyAndLongSessionsCanBePushedToo() throws {
         let plan = try swapSchedule()
-        // The track session (day 7) was missed; today is Friday day 11. Friday is next to Saturday's
-        // road session, Saturday holds it, and Sunday is closed.
-        let result = plan.pushingBack(missed: 5, today: 11)
-        XCTAssertEqual(result.dropped, [5])
-        XCTAssertNil(result.replaced)
-        XCTAssertEqual(result.progress.statuses, [PlanProgress.key(5): .skipped])
-        XCTAssertEqual(result.progress.dayOverrides, [:])
-        XCTAssertNil(try swapSchedule(result.progress).status(8))
+        let result = plan.pushingBack(missed: 1, today: 2)
+        let pushed = try swapSchedule(result.progress)
+        XCTAssertEqual(pushed.dayOffset(1), 3)
+        XCTAssertEqual(pushed.dayOffset(2), 4)
+        XCTAssertEqual(pushed.dayOffset(3), 5)
+        XCTAssertEqual(result.moved.first, 2)
     }
 
-    func testItNeverCrossesIntoTheNextCalendarWeek() throws {
-        let plan = try swapSchedule()
-        // The road session (Saturday day 12) was missed and today is Sunday day 13. Monday day 14 holds
-        // an easy run, but that is next week.
+    func testHardSessionsNeverEndUpOnNeighbouringDays() throws {
+        let plan = try swapSchedule(try swapSchedule().skipping(9))
+        // The road session (Saturday day 12) was missed and Sunday is closed, so it takes Monday day 14.
+        // Tuesday's track session (day 15) is next to it, so it moves to Thursday day 17; the easy run
+        // that was there moves to Friday.
         let result = plan.pushingBack(missed: 8, today: 13)
-        XCTAssertEqual(result.dropped, [8])
-        XCTAssertNil(result.replaced)
         let pushed = try swapSchedule(result.progress)
-        XCTAssertEqual(pushed.status(8), .skipped)
-        XCTAssertNil(pushed.status(9))
-        XCTAssertEqual(pushed.dayOffset(9), 14)
+        XCTAssertEqual(pushed.dayOffset(8), 14)
+        XCTAssertEqual(pushed.dayOffset(10), 17)
+        XCTAssertEqual(pushed.dayOffset(11), 18)
+        XCTAssertEqual(result.moved, [10, 11])
+        XCTAssertEqual(pushed.dayOffset(12), 19)
+        XCTAssertEqual(result.progress.statuses, [PlanProgress.key(9): .skipped])
     }
 
-    func testTheRaceAndTheDayBeforeItAreNeverUsed() throws {
+    func testEasyRunsMayFollowAHardSession() throws {
         let plan = try swapSchedule()
-        // The long run (Thursday day 24) was missed; today is Friday day 25, the day before the race.
-        // Friday's easy run, the race on Saturday and Sunday are all off limits.
-        let result = plan.pushingBack(missed: 14, today: 25)
-        XCTAssertEqual(result.dropped, [14])
-        XCTAssertNil(result.replaced)
+        // Same miss, but Monday's easy run (day 14) is still there: it moves to Tuesday behind the road
+        // session, and the track session goes to Thursday.
+        let result = plan.pushingBack(missed: 8, today: 13)
         let pushed = try swapSchedule(result.progress)
-        XCTAssertEqual(pushed.status(14), .skipped)
-        XCTAssertNil(pushed.status(15))
-        XCTAssertNil(pushed.status(16))
-        XCTAssertEqual(pushed.dayOffset(16), 26)
-        XCTAssertEqual(result.progress.dayOverrides, [:])
+        XCTAssertEqual(pushed.dayOffset(8), 14)
+        XCTAssertEqual(pushed.dayOffset(9), 15)
+        XCTAssertEqual(pushed.dayOffset(10), 17)
+        XCTAssertEqual(pushed.dayOffset(11), 18)
+        XCTAssertEqual(result.moved, [9, 10, 11])
+    }
+
+    func testPlacedHardSessionsStayApartAfterAnyPush() throws {
+        let plan = try swapSchedule()
+        for (missed, today) in [(0, 1), (3, 5), (5, 8), (8, 13), (10, 16)] {
+            let pushed = try swapSchedule(plan.pushingBack(missed: missed, today: today).progress)
+            let hardDays = (0..<17)
+                .filter { PlanSchedule.isHard(pushed.plan.sessions[$0].kind) }
+                .map { pushed.dayOffset($0) }
+                .sorted()
+            for pair in zip(hardDays, hardDays.dropFirst()) {
+                XCTAssertGreaterThan(pair.1 - pair.0, 1, "missed \(missed) today \(today)")
+            }
+        }
     }
 
     func testFinishedSessionsAreNeverTouched() throws {
-        // Today's easy run (day 1) is already done, so the long run goes to Thursday instead.
+        // Today's easy run (day 1) is already done: the long run cannot take that day and goes to Thursday.
         let plan = try swapSchedule(try swapSchedule().markingDone(1))
         let result = plan.pushingBack(missed: 0, today: 1)
         let pushed = try swapSchedule(result.progress)
         XCTAssertEqual(pushed.dayOffset(0), 3)
-        XCTAssertEqual(result.replaced, 2)
         XCTAssertEqual(pushed.status(1), .done)
         XCTAssertEqual(pushed.dayOffset(1), 1)
+        XCTAssertFalse(result.moved.contains(1))
+        XCTAssertEqual(result.progress.statuses, [PlanProgress.key(1): .done])
     }
 
-    func testPushingBackLeavesEasyRaceAndUnmissedSessionsAlone() throws {
+    func testAHardSessionAvoidsTheDaysNextToAFinishedHardSession() throws {
+        // The track session on day 15 is done. The missed road session may not take day 14 or 16 beside it.
+        let plan = try swapSchedule(try swapSchedule().markingDone(10))
+        let result = plan.pushingBack(missed: 8, today: 13)
+        let pushed = try swapSchedule(result.progress)
+        XCTAssertEqual(pushed.dayOffset(8), 17)
+        XCTAssertEqual(pushed.dayOffset(10), 15)
+        XCTAssertEqual(pushed.status(10), .done)
+        XCTAssertEqual(result.dropped, [])
+    }
+
+    func testSessionsThatWouldReachTheDayBeforeTheRaceAreDropped() throws {
         let plan = try swapSchedule()
-        let unchanged = PushBackResult(progress: plan.progress, replaced: nil, dropped: [])
-        // An easy session is never moved.
-        XCTAssertEqual(plan.pushingBack(missed: 1, today: 2), unchanged)
+        // The 2 mi easy run (Monday day 21) was missed and today is Thursday day 24. It takes today, the
+        // long run that was there would have to move to Friday day 25, the day before the race, and is dropped.
+        let result = plan.pushingBack(missed: 13, today: 24)
+        let pushed = try swapSchedule(result.progress)
+        XCTAssertEqual(pushed.dayOffset(13), 24)
+        XCTAssertEqual(result.dropped, [14])
+        XCTAssertEqual(result.moved, [])
+        XCTAssertEqual(pushed.status(14), .skipped)
+        XCTAssertNil(pushed.status(15))
+        XCTAssertEqual(pushed.dayOffset(15), 25)
+        XCTAssertEqual(pushed.dayOffset(16), 26)
+    }
+
+    func testTheMissedSessionItselfIsDroppedWhenNoDayIsLeft() throws {
+        let plan = try swapSchedule()
+        // The long run (Thursday day 24) was missed; today is Friday day 25, the day before the race.
+        let result = plan.pushingBack(missed: 14, today: 25)
+        XCTAssertEqual(result.dropped, [14])
+        XCTAssertEqual(result.moved, [])
+        XCTAssertEqual(result.progress.statuses, [PlanProgress.key(14): .skipped])
+        XCTAssertEqual(result.progress.dayOverrides, [:])
+        let pushed = try swapSchedule(result.progress)
+        XCTAssertNil(pushed.status(15))
+        XCTAssertEqual(pushed.dayOffset(15), 25)
+        XCTAssertEqual(pushed.dayOffset(16), 26)
+    }
+
+    func testTheRaceNeverMoves() throws {
+        let plan = try swapSchedule()
+        for (missed, today) in [(0, 1), (5, 11), (8, 13), (13, 24), (14, 25)] {
+            let pushed = try swapSchedule(plan.pushingBack(missed: missed, today: today).progress)
+            XCTAssertEqual(pushed.dayOffset(16), 26, "missed \(missed) today \(today)")
+            XCTAssertNil(pushed.status(16), "missed \(missed) today \(today)")
+        }
+    }
+
+    func testPushingBackLeavesTheRaceAndUnmissedSessionsAlone() throws {
+        let plan = try swapSchedule()
+        let unchanged = PushBackResult(progress: plan.progress, moved: [], dropped: [])
         // The race never moves.
         XCTAssertEqual(plan.pushingBack(missed: 16, today: 27), unchanged)
         // Not missed yet, or not a session.
@@ -293,22 +320,33 @@ final class TrainingPlanTests: XCTestCase {
         XCTAssertEqual(done.pushingBack(missed: 0, today: 1).progress, done.progress)
     }
 
-    func testAMovedSessionCanBePushedAgainWithinTheWeek() throws {
+    func testAMovedSessionCanBePushedAgain() throws {
         let plan = try swapSchedule()
         let first = plan.pushingBack(missed: 0, today: 1)
-        // Day 1 passes without the run; on Thursday it is missed again and takes the easy run there.
+        // Day 1 passes without the run; it is missed again and takes Thursday.
         let again = try swapSchedule(first.progress)
         XCTAssertEqual(again.firstMissed(today: 2), 0)
         let second = again.pushingBack(missed: 0, today: 3)
-        XCTAssertEqual(try swapSchedule(second.progress).dayOffset(0), 3)
-        XCTAssertEqual(second.replaced, 2)
+        let pushed = try swapSchedule(second.progress)
+        XCTAssertEqual(pushed.dayOffset(0), 3)
+        XCTAssertEqual(pushed.dayOffset(1), 4)
+        XCTAssertEqual(pushed.dayOffset(16), 26)
     }
 
     func testPushTexts() {
         XCTAssertEqual(PlanText.moveTitle(day: 5, today: 5, label: "sat oct 17"), "do it today")
         XCTAssertEqual(PlanText.moveTitle(day: 9, today: 7, label: "wed oct 21"), "move to wed oct 21")
-        XCTAssertEqual(PlanText.replacesNote(dayLabel: "thu oct 22", title: "3 mi easy"), "replaces thu 3 mi easy.")
-        XCTAssertEqual(PlanText.noRoomNote, "no room this week. it'll be skipped.")
+        XCTAssertEqual(PlanText.noRoomNote, "no room before the race. it'll be skipped.")
+        XCTAssertEqual(PlanText.sessionCount(1), "1 session")
+        XCTAssertEqual(PlanText.sessionCount(3), "3 sessions")
+        XCTAssertEqual(PlanText.pushNote(moved: 0, dropped: 0, raceLabel: "mon jun 21"),
+                       "doing it today moves nothing else.")
+        XCTAssertEqual(PlanText.pushNote(moved: 3, dropped: 0, raceLabel: "mon jun 21"),
+                       "doing it today moves 3 sessions later.")
+        XCTAssertEqual(PlanText.pushNote(moved: 1, dropped: 1, raceLabel: "mon jun 21"),
+                       "doing it today moves 1 session later and drops 1 session to keep the race on mon jun 21.")
+        XCTAssertEqual(PlanText.pushNote(moved: 0, dropped: 2, raceLabel: "mon jun 21"),
+                       "doing it today drops 2 sessions to keep the race on mon jun 21.")
     }
 
     // MARK: Missed, today, next
@@ -317,9 +355,10 @@ final class TrainingPlanTests: XCTestCase {
         let plan = try schedule()
         XCTAssertNil(plan.firstMissed(today: 0))
         XCTAssertNil(plan.firstMissed(today: 1))
-        // Session 0 (day 1) is an easy run and is never offered. Session 1 (track, day 3) is.
-        XCTAssertNil(plan.firstMissed(today: 2))
-        XCTAssertNil(plan.firstMissed(today: 3))
+        // Session 0 (easy, day 1) is on offer for two days like any other session; then session 1
+        // (track, day 3) is the oldest one left.
+        XCTAssertEqual(plan.firstMissed(today: 2), 0)
+        XCTAssertEqual(plan.firstMissed(today: 3), 0)
         XCTAssertEqual(plan.firstMissed(today: 4), 1)
         XCTAssertEqual(plan.firstMissed(today: 5), 1)
 
@@ -340,20 +379,22 @@ final class TrainingPlanTests: XCTestCase {
         XCTAssertNil(plan.firstMissed(today: 11))
     }
 
-    func testMissedEasySessionsAreNeverOfferedAndSkippedTheNextDay() throws {
+    func testMissedEasySessionsAreOfferedForTwoDaysThenSkipped() throws {
         let plan = try schedule()
         // Session 0 is a 2 mi easy run on day 1.
-        XCTAssertNil(plan.firstMissed(today: 2))
-        XCTAssertNil(try schedule(plan.skippingOld(today: 1)).status(0))
-        XCTAssertEqual(try schedule(plan.skippingOld(today: 2)).status(0), .skipped)
-        let reconciled = try schedule(plan.reconciled(activities: [], today: 2))
+        XCTAssertEqual(plan.firstMissed(today: 3), 0)
+        XCTAssertNil(try schedule(plan.skippingOld(today: 3)).status(0))
+        XCTAssertEqual(try schedule(plan.skippingOld(today: 4)).status(0), .skipped)
+        let reconciled = try schedule(plan.reconciled(activities: [], today: 4))
         XCTAssertEqual(reconciled.status(0), .skipped)
         XCTAssertNil(reconciled.status(1))
         // A matching run still counts on the day itself and afterwards.
         let run = ActivityDay(day: 1, kind: .run(miles: 2, workoutName: nil))
-        XCTAssertEqual(try schedule(plan.reconciled(activities: [run], today: 2)).status(0), .done)
-        // Pushing back an easy session does nothing.
-        XCTAssertEqual(plan.pushingBack(missed: 0, today: 2).progress, plan.progress)
+        XCTAssertEqual(try schedule(plan.reconciled(activities: [run], today: 4)).status(0), .done)
+        // Wednesday day 2 is closed, so the easy run takes Thursday and the track session behind it moves
+        // to Friday; the long run keeps Saturday.
+        let pushed = try schedule(plan.pushingBack(missed: 0, today: 2).progress)
+        XCTAssertEqual((0..<5).map { pushed.dayOffset($0) }, [3, 4, 5, 8, 12])
     }
 
     func testKeySessionsStayOnOfferForTwoDays() throws {
@@ -506,6 +547,43 @@ final class TrainingPlanTests: XCTestCase {
         let runs = [LoggedRun(date: try at(13, 0, 30), meters: 3000, workoutName: "")]
         let days = PlanActivities.days(runs: runs, workouts: [], start: start, calendar: calendar)
         XCTAssertEqual(days.map { $0.day }, [0])
+    }
+
+    func testFreeRunsOfOneDayAreAddedUpAndGuidedOnesStandAlone() throws {
+        let calendar = newYork()
+        let start = try XCTUnwrap(PlanCalendar.parse("2026-10-12", calendar: calendar))
+        func noon(_ day: Int, hour: Int = 12) -> Date {
+            return PlanCalendar.date(forOffset: day, start: start, calendar: calendar)
+                .addingTimeInterval(Double(hour) * 3600)
+        }
+        let runs = [LoggedRun(date: noon(1, hour: 7), meters: 1 * metersPerMile, workoutName: ""),
+                    LoggedRun(date: noon(1, hour: 18), meters: 0.8 * metersPerMile, workoutName: ""),
+                    LoggedRun(date: noon(1, hour: 19), meters: 3 * metersPerMile, workoutName: "20 min tempo"),
+                    LoggedRun(date: noon(2), meters: 2 * metersPerMile, workoutName: "")]
+        let days = PlanActivities.days(runs: runs, workouts: [], start: start, calendar: calendar)
+        XCTAssertEqual(days.count, 3)
+        var freeMilesOnDayOne: [Double] = []
+        for activity in days where activity.day == 1 {
+            if case .run(let miles, let name) = activity.kind, name == nil {
+                freeMilesOnDayOne.append(miles)
+            }
+        }
+        XCTAssertEqual(freeMilesOnDayOne.count, 1)
+        XCTAssertEqual(freeMilesOnDayOne.first ?? 0, 1.8, accuracy: 0.0001)
+        var guidedNames: [String] = []
+        for activity in days {
+            if case .run(_, let name) = activity.kind, let guided = name {
+                guidedNames.append(guided)
+            }
+        }
+        XCTAssertEqual(guidedNames, ["20 min tempo"])
+
+        // Two short runs together make the 2 mi easy session of day 1 (it needs 1.0 mi).
+        let plan = try schedule()
+        let split = [LoggedRun(date: noon(1, hour: 7), meters: 0.6 * metersPerMile, workoutName: ""),
+                     LoggedRun(date: noon(1, hour: 18), meters: 0.6 * metersPerMile, workoutName: "")]
+        let split1 = PlanActivities.days(runs: split, workouts: [], start: start, calendar: calendar)
+        XCTAssertEqual(try schedule(plan.reconciled(activities: split1)).status(0), .done)
     }
 
     // MARK: Weekly miles

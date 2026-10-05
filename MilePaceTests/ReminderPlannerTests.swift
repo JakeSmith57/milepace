@@ -177,14 +177,17 @@ final class ReminderPlannerTests: XCTestCase {
         XCTAssertFalse(later.body.contains("also missed"))
     }
 
-    func testMissedEasySessionsAreNeverMentioned() throws {
-        // Session 0 is a 2 mi easy run on day 1; it is never offered, so no morning mentions it.
+    func testMissedEasySessionIsMentionedForTwoDaysLikeAnyOther() throws {
+        // Session 0 is a 2 mi easy run on day 1 (tue oct 13).
         for today in [2, 3] {
             let specs = try build(today: today)
-            for reminder in specs where reminder.id.hasPrefix("plan.morning.") {
-                XCTAssertFalse(reminder.body.contains("also missed"), "day \(today): \(reminder.id)")
-            }
+            let next = try XCTUnwrap(specs.first(where: { $0.id.hasPrefix("plan.morning.") }))
+            XCTAssertTrue(next.body.hasSuffix(" also missed: tue oct 13 2 mi easy."), "day \(today): \(next.body)")
         }
+        // On day 4 it is more than two days old and is skipped.
+        let late = try build(today: 4)
+        let morning = try XCTUnwrap(spec(late, id: "plan.morning.5"))
+        XCTAssertFalse(morning.body.contains("2 mi easy"))
     }
 
     func testMissedSessionsOlderThanTwoDaysAreNotMentioned() throws {
@@ -327,10 +330,78 @@ final class ReminderPlannerTests: XCTestCase {
         let zones = PaceZones.forMile(412)
         XCTAssertEqual(PlanText.lines(for: plan.sessions[0], zones: zones, goalMile: 330),
                        ["2 mi, conversational, 9:35\u{2013}10:30 /mi"])
+        // The time trial shows its target and never "goal".
         XCTAssertEqual(PlanText.detail(for: plan.sessions[4], zones: zones, goalMile: 330),
-                       "goal 5:30. target \u{2264} 6:35.")
+                       "target \u{2264} 6:35.")
         XCTAssertEqual(PlanText.lines(for: plan.sessions[5], zones: zones, goalMile: 330),
                        ["goal 5:30", "race day"])
+    }
+
+    func testTimeTrialTextShowsTheTargetAndRaceTextTheGoal() throws {
+        let zones = PaceZones.forMile(412)
+        let trial = PlanSession(week: 2, weekday: 6, phase: 1, kind: .timeTrial, title: "mile time trial",
+                                miles: nil, preset: "mile-tt", note: "target \u{2264} 6:35", targetSeconds: 395)
+        // The note repeats the target, so it is said once; "goal" never appears.
+        XCTAssertEqual(PlanText.lines(for: trial, zones: zones, goalMile: 330), ["target \u{2264} 6:35"])
+        XCTAssertEqual(PlanText.detail(for: trial, zones: zones, goalMile: 330), "target \u{2264} 6:35.")
+        XCTAssertEqual(PlanText.trialTarget(for: trial), "target \u{2264} 6:35")
+
+        let withNote = PlanSession(week: 2, weekday: 6, phase: 1, kind: .timeTrial, title: "mile time trial",
+                                   miles: nil, preset: "mile-tt", note: "keep the first lap easy", targetSeconds: 365)
+        XCTAssertEqual(PlanText.lines(for: withNote, zones: zones, goalMile: 330),
+                       ["target \u{2264} 6:05", "keep the first lap easy"])
+
+        // The race shows its own goal time, not the runner's current goal setting.
+        let race = PlanSession(week: 37, weekday: 1, phase: 4, kind: .race, title: "goal race",
+                               miles: nil, preset: "mile-tt", note: nil, targetSeconds: 330)
+        XCTAssertEqual(PlanText.lines(for: race, zones: zones, goalMile: 345), ["goal 5:30"])
+        XCTAssertNil(PlanText.trialTarget(for: race))
+        let bareRace = PlanSession(week: 37, weekday: 1, phase: 4, kind: .race, title: "goal race",
+                                   miles: nil, preset: "mile-tt", note: nil)
+        XCTAssertEqual(PlanText.raceGoal(for: bareRace, goalMile: 345), "goal 5:45")
+    }
+
+    func testTimeTrialReminderUsesTheSessionTarget() throws {
+        let json = """
+        {
+          "name": "tt", "startDate": "2026-10-12",
+          "weeks": [ { "week": 1, "miles": 5, "phase": 1, "recovery": false, "timeTrial": true, "race": true } ],
+          "sessions": [
+            { "week": 1, "weekday": 2, "phase": 1, "kind": "timeTrial", "preset": "mile-tt", "title": "mile time trial", "note": "target \\u2264 6:35", "targetSeconds": 395 },
+            { "week": 1, "weekday": 6, "phase": 1, "kind": "race", "preset": "mile-tt", "title": "goal race", "targetSeconds": 330 }
+          ]
+        }
+        """
+        let plan = try JSONDecoder().decode(PlanFile.self, from: Data(json.utf8))
+        let specs = ReminderPlanner.build(schedule: PlanSchedule(plan: plan, progress: PlanProgress()),
+                                          todayOffset: 0,
+                                          nowMinutes: 0,
+                                          settings: ReminderSettings.standard,
+                                          loggedMilesByDay: [:],
+                                          zones: PaceZones.forMile(412),
+                                          goalMile: 345,
+                                          startDate: try startDate())
+        let trial = try XCTUnwrap(spec(specs, id: "plan.tt.0"))
+        XCTAssertEqual(trial.body, "keep today short and easy. target \u{2264} 6:35.")
+        let race = try XCTUnwrap(spec(specs, id: "plan.tt.4"))
+        XCTAssertEqual(race.body, "goal 5:30. lay out your shoes.")
+    }
+
+    func testRoadTextFollowsThePaceWindow() throws {
+        let zones = PaceZones.forMile(412)
+        let road = PlanSession(week: 1, weekday: 2, phase: 1, kind: .road, title: "t",
+                               miles: nil, preset: "3 \u{00D7} 5 min threshold", note: nil)
+        let wide = "threshold " + ReadoutFormat.paceRange(PaceZones.guardRange(zones.threshold, window: 8)) + " /mi"
+        let narrow = "threshold " + ReadoutFormat.paceRange(PaceZones.guardRange(zones.threshold, window: 3)) + " /mi"
+        XCTAssertNotEqual(wide, narrow)
+        XCTAssertEqual(PlanText.lines(for: road, zones: zones, goalMile: 330), [wide])
+        XCTAssertEqual(PlanText.lines(for: road, zones: zones, goalMile: 330, window: 8), [wide])
+        XCTAssertEqual(PlanText.lines(for: road, zones: zones, goalMile: 330, window: 3), [narrow])
+        // The easy range is wide enough that no window changes it.
+        let easy = PlanSession(week: 1, weekday: 2, phase: 1, kind: .easy, title: "t",
+                               miles: 2, preset: nil, note: nil)
+        XCTAssertEqual(PlanText.lines(for: easy, zones: zones, goalMile: 330, window: 3),
+                       PlanText.lines(for: easy, zones: zones, goalMile: 330, window: 15))
     }
 
     func testClockText() {

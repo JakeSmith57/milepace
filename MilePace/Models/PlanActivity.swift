@@ -39,17 +39,30 @@ enum PlanActivities {
         return max(0, repMeters) / metersPerMile + trackWarmupCooldownMiles
     }
 
-    /// Every run and workout as an activity on the plan day it started on.
+    /// Every run and workout as an activity on the plan day it started on. The free runs of one day are
+    /// added up into a single activity (an easy session asks for total miles that day); each guided road
+    /// workout and each track workout stands alone.
     static func days(runs: [LoggedRun],
                      workouts: [LoggedWorkout],
                      start: Date,
                      calendar: Calendar = PlanCalendar.local) -> [ActivityDay] {
+        var freeMiles: [Int: Double] = [:]
+        var freeOrder: [Int] = []
         var result: [ActivityDay] = []
         for run in runs {
             let day = PlanCalendar.activityDay(of: run.date, start: start, calendar: calendar)
-            let name: String? = run.workoutName.isEmpty ? nil : run.workoutName
-            result.append(ActivityDay(day: day,
-                                      kind: .run(miles: run.meters / metersPerMile, workoutName: name)))
+            let miles = run.meters / metersPerMile
+            if run.workoutName.isEmpty {
+                if freeMiles[day] == nil {
+                    freeOrder.append(day)
+                }
+                freeMiles[day, default: 0] += miles
+            } else {
+                result.append(ActivityDay(day: day, kind: .run(miles: miles, workoutName: run.workoutName)))
+            }
+        }
+        for day in freeOrder {
+            result.append(ActivityDay(day: day, kind: .run(miles: freeMiles[day] ?? 0, workoutName: nil)))
         }
         for workout in workouts {
             let day = PlanCalendar.activityDay(of: workout.date, start: start, calendar: calendar)

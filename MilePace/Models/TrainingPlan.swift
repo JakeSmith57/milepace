@@ -229,11 +229,11 @@ struct StripCell: Equatable {
 
 /// What `PlanSchedule.pushingBack` decided.
 struct PushBackResult: Equatable {
-    /// Progress with the missed session moved (or skipped) and the easy session it replaced skipped.
+    /// Progress with the missed session and everything behind it moved, and the dropped sessions skipped.
     var progress: PlanProgress
-    /// The easy session the missed one took the day of (marked skipped in `progress`), if any.
-    var replaced: Int?
-    /// The missed session when no day this week had room for it (marked skipped in `progress`).
+    /// Sessions other than the missed one that moved to a later day.
+    var moved: [Int]
+    /// Sessions skipped because they would land on or after the day before the race.
     var dropped: [Int]
 }
 
@@ -248,8 +248,7 @@ struct PlanWeekMiles: Equatable {
 struct PlanSchedule {
     /// Preset id of the mile time trial, which time trials and the race point at.
     static let mileTrialPresetId = "mile-tt"
-    /// A missed key session stays on offer for this many days; older ones are skipped. Missed easy
-    /// sessions are never offered and are skipped once their day has passed.
+    /// A missed session stays on offer for this many days; older ones are skipped.
     static let missedWindowDays = 2
 
     let plan: PlanFile
@@ -291,14 +290,12 @@ struct PlanSchedule {
         return progress.statuses[PlanProgress.key(index)]
     }
 
-    /// Oldest key session (anything but an easy run) from the last `missedWindowDays` days before
-    /// `today` with no status. Missed easy sessions are never offered.
+    /// Oldest session from the last `missedWindowDays` days before `today` with no status.
     func firstMissed(today: Int) -> Int? {
         let oldest = today - PlanSchedule.missedWindowDays
         for index in plan.sessions.indices {
             let day = dayOffset(index)
-            if day < today && day >= oldest && status(index) == nil
-                && plan.sessions[index].kind != .easy {
+            if day < today && day >= oldest && status(index) == nil {
                 return index
             }
         }
@@ -382,11 +379,8 @@ struct PlanSchedule {
     /// The calendar week holding `day`: its planned week and the miles in `milesByDay` over its seven days.
     func weekMiles(containing day: Int, milesByDay: [Int: Double]) -> PlanWeekMiles {
         let monday = calendarWeekStart(containing: day)
-        var logged = 0.0
-        for offset in monday...(monday + 6) {
-            logged += milesByDay[offset] ?? 0
-        }
-        return PlanWeekMiles(planWeek: plannedWeek(inCalendarWeekStarting: monday), logged: logged)
+        return PlanWeekMiles(planWeek: plannedWeek(inCalendarWeekStarting: monday),
+                             logged: WeeklyMiles.sum(milesByDay: milesByDay, firstDay: monday))
     }
 
     /// Nearest unfinished track session using preset `id` from `today` through `today + days`.
@@ -446,84 +440,102 @@ struct PlanSchedule {
         }
     }
 
-    /// Whether another hard session that is scheduled and not skipped sits on the day before or the
-    /// day after `day`. `ignoring` is the session being placed.
-    private func hasHardNeighbour(of day: Int, ignoring: Int) -> Bool {
-        for index in plan.sessions.indices where index != ignoring {
-            guard PlanSchedule.isHard(plan.sessions[index].kind),
-                  status(index) != SessionStatus.skipped else { continue }
-            let other = dayOffset(index)
-            if other == day - 1 || other == day + 1 {
-                return true
+    /// The days that hold a finished session, and those among them that hold a hard one.
+    private func finishedDays() -> (all: Set<Int>, hard: Set<Int>) {
+        var all = Set<Int>()
+        var hard = Set<Int>()
+        for index in plan.sessions.indices where status(index) == SessionStatus.done {
+            let day = dayOffset(index)
+            all.insert(day)
+            if PlanSchedule.isHard(plan.sessions[index].kind) {
+                hard.insert(day)
             }
         }
-        return false
+        return (all: all, hard: hard)
     }
 
-    /// Whether the missed session `missed` can take `day`: every session scheduled there is either
-    /// skipped or an easy session with no status (it gets replaced), and a hard session does not end
-    /// up next to another hard one.
-    private func canTake(day: Int, missed: Int) -> Bool {
-        for index in indices(onDay: day) where index != missed {
-            switch status(index) {
-            case .some(.done):
-                return false
-            case .some(.skipped):
-                continue
-            case .none:
-                if plan.sessions[index].kind != .easy { return false }
+    /// The first day from `start` and before `cutoff` that a moved session may take: not a Wednesday or
+    /// Sunday, not the day of a finished session, and for a hard session not next to another hard one
+    /// (one already placed in this pass or a finished one). Nil when there is none.
+    private func openDay(from start: Int,
+                         hard: Bool,
+                         cutoff: Int,
+                         finished: (all: Set<Int>, hard: Set<Int>),
+                         placedHard: Set<Int>) -> Int? {
+        let limit = cutoff == Int.max ? start + 366 : cutoff
+        var day = start
+        while day < limit {
+            let weekday = weekdayNumber(ofDay: day)
+            var open = weekday != 3 && weekday != 7 && !finished.all.contains(day)
+            if open && hard {
+                if placedHard.contains(day - 1) || finished.hard.contains(day - 1) || finished.hard.contains(day + 1) {
+                    open = false
+                }
             }
+            if open {
+                return day
+            }
+            day += 1
         }
-        if PlanSchedule.isHard(plan.sessions[missed].kind) && hasHardNeighbour(of: day, ignoring: missed) {
-            return false
-        }
-        return true
+        return nil
     }
 
-    /// "Do it today" for the missed key session `missed`: it takes the first day from `today` to the
-    /// end of the calendar week (Monday to Sunday) that holds an easy session or nothing, skipping
-    /// Wednesdays, Sundays, the race day and the day before it, and keeping hard sessions apart. The
-    /// easy session on that day is skipped (`replaced`); nothing else moves. With no such day the
-    /// missed session is skipped (`dropped`). Easy sessions, the race, finished sessions and sessions
-    /// that are not yet missed come back unchanged.
+    /// "Do it today" for the missed session `missed`. The missed session and every unfinished session
+    /// after it (the race excepted) are placed in plan order. The missed one takes `today`; each next one
+    /// takes the later of its own day and the day after the one before it, then moves on until the day is
+    /// allowed. Moving stops at the first session that can keep its day, so a slip only ripples as far as
+    /// it must. A session that would land on or after the day before the race is skipped (`dropped`), and
+    /// the race and finished sessions never move. Easy and long runs may follow a hard session.
     func pushingBack(missed: Int, today: Int) -> PushBackResult {
-        let unchanged = PushBackResult(progress: progress, replaced: nil, dropped: [])
+        let unchanged = PushBackResult(progress: progress, moved: [], dropped: [])
         guard plan.sessions.indices.contains(missed),
               status(missed) == nil,
-              today > dayOffset(missed) else {
+              today > dayOffset(missed),
+              plan.sessions[missed].kind != .race else {
             return unchanged
-        }
-        switch plan.sessions[missed].kind {
-        case .easy, .race:
-            return unchanged
-        case .long, .road, .track, .timeTrial, .other:
-            break
         }
 
         var cutoff = Int.max
         if let race = raceIndex {
             cutoff = dayOffset(race) - 1
         }
-        let lastDay = calendarWeekStart(containing: today) + 6
-
-        var updated = progress
-        var day = today
-        while day <= lastDay {
-            let weekday = weekdayNumber(ofDay: day)
-            if weekday != 3 && weekday != 7 && day < cutoff && canTake(day: day, missed: missed) {
-                var replaced: Int? = nil
-                for index in indices(onDay: day) where index != missed && status(index) == nil {
-                    updated.statuses[PlanProgress.key(index)] = .skipped
-                    replaced = index
-                }
-                setDay(missed, day, in: &updated)
-                return PushBackResult(progress: updated, replaced: replaced, dropped: [])
-            }
-            day += 1
+        let finished = finishedDays()
+        let pending = plan.sessions.indices.filter { index in
+            index >= missed && status(index) == nil && plan.sessions[index].kind != .race
         }
 
-        updated.statuses[PlanProgress.key(missed)] = .skipped
-        return PushBackResult(progress: updated, replaced: nil, dropped: [missed])
+        var updated = progress
+        var moved: [Int] = []
+        var dropped: [Int] = []
+        var placedHard = Set<Int>()
+        var previous = today - 1
+        for index in pending {
+            let current = dayOffset(index)
+            let hard = PlanSchedule.isHard(plan.sessions[index].kind)
+            let earliest = index == missed ? today : max(current, previous + 1)
+            if index != missed && earliest == current && !(hard && placedHard.contains(current - 1)) {
+                // This one keeps its day, and so does everything after it.
+                break
+            }
+            guard let day = openDay(from: earliest,
+                                    hard: hard,
+                                    cutoff: cutoff,
+                                    finished: finished,
+                                    placedHard: placedHard) else {
+                updated.statuses[PlanProgress.key(index)] = .skipped
+                dropped.append(index)
+                continue
+            }
+            setDay(index, day, in: &updated)
+            if hard {
+                placedHard.insert(day)
+            }
+            previous = day
+            if index != missed && day != current {
+                moved.append(index)
+            }
+        }
+        return PushBackResult(progress: updated, moved: moved, dropped: dropped)
     }
 
     // MARK: Status changes
@@ -542,12 +554,19 @@ struct PlanSchedule {
         return updated
     }
 
-    /// Skips every session with no status that is no longer on offer: easy sessions once their day
-    /// has passed, everything else once its day is more than `missedWindowDays` before `today`.
+    /// Takes a finished session back to unfinished (a run that was marked done was then discarded).
+    func reopening(_ index: Int) -> PlanProgress {
+        guard plan.sessions.indices.contains(index), status(index) == SessionStatus.done else { return progress }
+        var updated = progress
+        updated.statuses.removeValue(forKey: PlanProgress.key(index))
+        return updated
+    }
+
+    /// Skips every session with no status whose day is more than `missedWindowDays` before `today`.
     func skippingOld(today: Int) -> PlanProgress {
         var updated = progress
+        let oldest = today - PlanSchedule.missedWindowDays
         for index in plan.sessions.indices where status(index) == nil {
-            let oldest = plan.sessions[index].kind == .easy ? today : today - PlanSchedule.missedWindowDays
             if dayOffset(index) < oldest {
                 updated.statuses[PlanProgress.key(index)] = .skipped
             }
@@ -623,8 +642,7 @@ struct PlanSchedule {
         return updated
     }
 
-    /// Matches activities first, then skips easy sessions whose day has passed and other sessions missed
-    /// more than two days ago.
+    /// Matches activities first, then skips sessions missed more than two days ago.
     func reconciled(activities: [ActivityDay], today: Int) -> PlanProgress {
         let matched = PlanSchedule(plan: plan,
                                    progress: reconciled(activities: activities),

@@ -20,6 +20,7 @@ struct SettingsView: View {
     @AppStorage(SettingsKey.reminderEvening) private var reminderEvening: Bool = true
     @AppStorage(SettingsKey.reminderTimeTrial) private var reminderTimeTrial: Bool = true
     @AppStorage(SettingsKey.reminderWeekly) private var reminderWeekly: Bool = true
+    @AppStorage(SettingsKey.paceWindow) private var paceWindow: Double = AppSettings.defaultPaceWindow
     @AppStorage(SettingsKey.reminderMorningMinutes) private var morningMinutes: Int = ReminderSettings.defaultMorningMinutes
     @AppStorage(SettingsKey.reminderEveningMinutes) private var eveningMinutes: Int = ReminderSettings.defaultEveningMinutes
 
@@ -32,6 +33,12 @@ struct SettingsView: View {
 
     private var zones: PaceZones {
         return PaceZones.forMile(mileTime)
+    }
+
+    /// The pace window as whole seconds, for the stepper.
+    private var paceWindowSeconds: Binding<Int> {
+        return Binding(get: { Int(paceWindow.rounded()) },
+                       set: { paceWindow = Double($0) })
     }
 
     private var cueOptions: [Choice<CueInterval>] {
@@ -64,7 +71,7 @@ struct SettingsView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            StatusLine(left: "milepace", center: "set", right: "v1.5")
+            StatusLine(left: "milepace", center: "set", right: "v1.6")
             ScrollView {
                 VStack(alignment: .leading, spacing: 0) {
                     mileTimes
@@ -98,23 +105,17 @@ struct SettingsView: View {
             }
         }
         .onChange(of: mileText) { _, newValue in
-            if let value = parseTime(newValue), AppSettings.validMileRange.contains(value) {
-                mileTime = value
+            if newValue != formatDuration(mileTime) {
                 mileInvalid = false
-            } else {
-                mileInvalid = true
+            }
+        }
+        .onChange(of: goalText) { _, newValue in
+            if newValue != formatDuration(goalMile) {
+                goalInvalid = false
             }
         }
         .onChange(of: mileTime) { _, newValue in
             syncMileText(newValue)
-        }
-        .onChange(of: goalText) { _, newValue in
-            if let value = parseTime(newValue), AppSettings.validMileRange.contains(value) {
-                goalMile = value
-                goalInvalid = false
-            } else {
-                goalInvalid = true
-            }
         }
         .onChange(of: metronomeVolume) { _, newValue in
             Metronome.shared.setVolume(Float(newValue))
@@ -136,12 +137,14 @@ struct SettingsView: View {
             FieldRow(key: "current",
                      placeholder: "m:ss",
                      text: $mileText,
-                     note: mileInvalid ? "use m:ss, 4:00 to 12:00" : nil)
+                     note: mileInvalid ? InputParsing.mileTimeNote : nil,
+                     onCommit: { commitMile() })
             FieldRow(key: "goal",
                      placeholder: "m:ss",
                      text: $goalText,
-                     note: goalInvalid ? "use m:ss, 4:00 to 12:00" : nil)
-            note("training zones come from your current mile. units are miles.")
+                     note: goalInvalid ? InputParsing.mileTimeNote : nil,
+                     onCommit: { commitGoal() })
+            note("training zones come from your current mile. type 645 for 6:45. units are miles.")
         }
     }
 
@@ -158,9 +161,31 @@ struct SettingsView: View {
         }
     }
 
+    /// Takes the typed current mile time when the field is submitted or left. A time that is not 5:00 to
+    /// 8:30 keeps the old value and shows the note.
+    private func commitMile() {
+        if let value = InputParsing.validMileTime(mileText) {
+            mileTime = value
+            mileInvalid = false
+        } else {
+            mileInvalid = true
+        }
+        mileText = formatDuration(mileTime)
+    }
+
+    private func commitGoal() {
+        if let value = InputParsing.validMileTime(goalText) {
+            goalMile = value
+            goalInvalid = false
+        } else {
+            goalInvalid = true
+        }
+        goalText = formatDuration(goalMile)
+    }
+
     /// Keeps the text box in step when the mile time changes elsewhere, such as after a time trial.
     private func syncMileText(_ value: Double) {
-        if let typed = parseTime(mileText), abs(typed - value) < 0.5 {
+        if let typed = InputParsing.mileTime(mileText), abs(typed - value) < 0.5 {
             return
         }
         mileText = formatDuration(value)
@@ -298,10 +323,14 @@ struct SettingsView: View {
             SectionHeader("voice and feedback")
             ChoiceRow(label: "pace cues every", options: cueOptions, selection: $cueInterval)
             CheckRow(title: "announce each mile", isOn: $announceMiles)
-                .disabled(cueInterval != .off)
-                .opacity(cueInterval == .off ? 1 : 0.35)
             CheckRow(title: "pace guard cues", isOn: $zoneGuardCues)
+            StepperRow(title: "target window",
+                       value: paceWindowSeconds,
+                       range: Int(AppSettings.paceWindowRange.lowerBound)...Int(AppSettings.paceWindowRange.upperBound),
+                       format: { "\u{00B1}\($0) s/mi" })
+            note("how far off target before you hear speed up / slow down. wider = fewer cues.")
             CheckRow(title: "haptics", isOn: $haptics)
+            note("mile announcements are skipped during reps and recoveries, and with 1 mi pace cues on.")
         }
     }
 

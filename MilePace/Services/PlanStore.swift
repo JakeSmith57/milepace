@@ -100,8 +100,8 @@ final class PlanStore {
         Reminders.shared.reschedule(clearDelivered: true)
     }
 
-    /// "Do it today" for a missed key session: it takes the first free easy day left this week, or is
-    /// skipped when there is none (see `PlanSchedule.pushingBack`).
+    /// "Do it today" for a missed session: it moves to today (or the first allowed day after) and the
+    /// unfinished sessions behind it move later as far as they must; see `PlanSchedule.pushingBack`.
     func doItToday(missed index: Int) {
         guard let schedule = schedule else { return }
         apply(schedule.pushingBack(missed: index, today: todayOffset).progress)
@@ -115,6 +115,12 @@ final class PlanStore {
     func markDone(_ index: Int) {
         guard let schedule = schedule else { return }
         apply(schedule.markingDone(index))
+    }
+
+    /// Takes a finished session back to unfinished, after the run that finished it was discarded.
+    func reopen(_ index: Int) {
+        guard let schedule = schedule else { return }
+        apply(schedule.reopening(index))
     }
 
     /// Marks sessions done when a saved run or workout of the right kind started on their day, and
@@ -147,17 +153,20 @@ final class PlanStore {
 
     /// Called when a run or workout is saved: marks the active session done, but only when the saved
     /// activity is the kind that session asks for (a run for easy, long and road sessions, a track
-    /// workout for track, time trial and race sessions). Anything else leaves it alone.
-    func completeActive(_ kind: ActivityDay.Kind) {
-        guard let index = activeSessionIndex else { return }
+    /// workout for track, time trial and race sessions). Anything else leaves it alone. Returns the
+    /// index of the session that was marked done, so a later discard can reopen it.
+    @discardableResult
+    func completeActive(_ kind: ActivityDay.Kind) -> Int? {
+        guard let index = activeSessionIndex else { return nil }
         guard let schedule = schedule, schedule.plan.sessions.indices.contains(index) else {
             activeSessionIndex = nil
-            return
+            return nil
         }
-        guard PlanSchedule.isSameFamily(kind, session: schedule.plan.sessions[index]) else { return }
+        guard PlanSchedule.isSameFamily(kind, session: schedule.plan.sessions[index]) else { return nil }
         activeSessionIndex = nil
-        guard schedule.status(index) == nil else { return }
+        guard schedule.status(index) == nil else { return nil }
         apply(schedule.markingDone(index))
+        return index
     }
 
     /// Forgets the active session without marking it: a run or workout was discarded, or the screen

@@ -189,4 +189,188 @@ final class TrackWorkoutTests: XCTestCase {
             XCTAssertFalse(WorkoutPresets.presets(in: group).isEmpty)
         }
     }
+
+    // MARK: Bounce guard, undo and persistence
+
+    func testLapTapsUnderTenSecondsAreIgnored() {
+        var workout = TrackWorkout(spec: twoByEightHundred())
+        workout.start(now: at(0))
+        XCTAssertEqual(workout.lapTap(now: at(9.9)), .tooSoon)
+        XCTAssertEqual(workout.state, .running(rep: 1, lap: 1))
+        XCTAssertFalse(workout.canUndo)
+        XCTAssertEqual(workout.lapSplits, [[]])
+
+        // Exactly ten seconds counts.
+        let first = workout.lapTap(now: at(10))
+        XCTAssertEqual(first, .lapDone(split: 10, delta: -90, repFinished: false, workoutFinished: false))
+        // The next lap's clock starts at that tap.
+        XCTAssertEqual(workout.lapTap(now: at(15)), .tooSoon)
+        XCTAssertEqual(workout.state, .running(rep: 1, lap: 2))
+        XCTAssertEqual(TrackWorkout.minLapSeconds, 10)
+    }
+
+    func testTheFirstLapAfterGoIsAlsoGuarded() {
+        var workout = TrackWorkout(spec: twoByEightHundred())
+        workout.start(now: at(0))
+        _ = workout.lapTap(now: at(98))
+        _ = workout.lapTap(now: at(200))
+        XCTAssertTrue(workout.tick(now: at(260)))
+        XCTAssertEqual(workout.lapTap(now: at(270)), .startedRep)
+        XCTAssertEqual(workout.lapTap(now: at(275)), .tooSoon)
+        XCTAssertEqual(workout.state, .running(rep: 2, lap: 1))
+    }
+
+    func testUndoBringsBackASkippedRest() {
+        var workout = TrackWorkout(spec: twoByEightHundred())
+        workout.start(now: at(0))
+        _ = workout.lapTap(now: at(98))
+        _ = workout.lapTap(now: at(200))
+        XCTAssertEqual(workout.state, .resting(until: at(260)))
+
+        workout.skipRest(now: at(210))
+        XCTAssertTrue(workout.isRestComplete)
+        XCTAssertTrue(workout.canUndo)
+
+        XCTAssertTrue(workout.undoLastTap())
+        XCTAssertFalse(workout.isRestComplete)
+        XCTAssertEqual(workout.state, .resting(until: at(260)))
+        XCTAssertEqual(workout.repTimes.count, 1)
+
+        // The next undo takes back the lap tap that ended rep 1.
+        XCTAssertTrue(workout.undoLastTap())
+        XCTAssertEqual(workout.state, .running(rep: 1, lap: 2))
+        XCTAssertEqual(workout.repTimes, [])
+    }
+
+    func testUndoFromFinishedGoesBackToTheLastLap() {
+        let single = WorkoutSpec(name: "1 x 400", reps: 1, repDistance: 400, targetRepSeconds: 80, restSeconds: 0)
+        var workout = TrackWorkout(spec: single)
+        workout.start(now: at(0))
+        let outcome = workout.lapTap(now: at(80))
+        XCTAssertEqual(outcome, .lapDone(split: 80, delta: 0, repFinished: true, workoutFinished: true))
+        XCTAssertEqual(workout.state, .finished)
+
+        XCTAssertTrue(workout.undoLastTap())
+        XCTAssertEqual(workout.state, .running(rep: 1, lap: 1))
+        XCTAssertEqual(workout.repTimes, [])
+        XCTAssertEqual(workout.lapSplits, [[]])
+        XCTAssertFalse(workout.undoLastTap())
+    }
+
+    func testAWorkoutSurvivesEncodingMidRest() throws {
+        var workout = TrackWorkout(spec: twoByEightHundred())
+        workout.start(now: at(0))
+        _ = workout.lapTap(now: at(98))
+        _ = workout.lapTap(now: at(200))
+        let data = try JSONEncoder().encode(workout)
+        var decoded = try JSONDecoder().decode(TrackWorkout.self, from: data)
+        XCTAssertEqual(decoded, workout)
+        XCTAssertEqual(decoded.state, .resting(until: at(260)))
+        XCTAssertEqual(decoded.repTimes.count, 1)
+        // The undo history came along.
+        XCTAssertTrue(decoded.canUndo)
+        XCTAssertTrue(decoded.undoLastTap())
+        XCTAssertEqual(decoded.state, .running(rep: 1, lap: 2))
+    }
+
+    func testEveryTrackStateEncodes() throws {
+        let states: [TrackState] = [.ready, .running(rep: 2, lap: 1), .resting(until: at(5)),
+                                    .setRest(until: at(9)), .finished]
+        for state in states {
+            let data = try JSONEncoder().encode(state)
+            XCTAssertEqual(try JSONDecoder().decode(TrackState.self, from: data), state)
+        }
+    }
+
+    // MARK: Draft
+
+    func testTrackDraftFreshnessAndTitles() {
+        var workout = TrackWorkout(spec: twoByEightHundred())
+        workout.start(now: at(0))
+        let saved = Date(timeIntervalSinceReferenceDate: 100_000)
+        let draft = TrackSessionDraft(workout: workout, sessionStart: saved.addingTimeInterval(-600), savedAt: saved)
+        XCTAssertTrue(draft.isFresh(now: saved))
+        XCTAssertTrue(draft.isFresh(now: saved.addingTimeInterval(3 * 3600)))
+        XCTAssertFalse(draft.isFresh(now: saved.addingTimeInterval(3 * 3600 + 1)))
+        XCTAssertFalse(draft.isFresh(now: saved.addingTimeInterval(-1)))
+        XCTAssertFalse(draft.isFinished)
+        XCTAssertEqual(draft.title, "resume 2 x 800")
+        XCTAssertEqual(draft.actionTitle, "resume")
+
+        var over = workout
+        over.finishEarly()
+        let finished = TrackSessionDraft(workout: over, sessionStart: saved, savedAt: saved)
+        XCTAssertTrue(finished.isFinished)
+        XCTAssertEqual(finished.title, "unsaved results: 2 x 800")
+        XCTAssertEqual(finished.actionTitle, "open")
+    }
+
+    func testTrackDraftStore() throws {
+        let suite = "milepace.tests.trackdraft"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defaults.removePersistentDomain(forName: suite)
+        defer { defaults.removePersistentDomain(forName: suite) }
+
+        var workout = TrackWorkout(spec: twoByEightHundred())
+        workout.start(now: at(0))
+        _ = workout.lapTap(now: at(98))
+        let saved = Date(timeIntervalSinceReferenceDate: 100_000)
+        let draft = TrackSessionDraft(workout: workout, sessionStart: saved.addingTimeInterval(-300), savedAt: saved)
+
+        XCTAssertNil(TrackSessionStore.load(now: saved, defaults: defaults))
+        TrackSessionStore.save(draft, defaults: defaults)
+        XCTAssertEqual(TrackSessionStore.load(now: saved.addingTimeInterval(60), defaults: defaults), draft)
+
+        // An old draft is forgotten and removed.
+        XCTAssertNil(TrackSessionStore.load(now: saved.addingTimeInterval(4 * 3600), defaults: defaults))
+        XCTAssertNil(defaults.data(forKey: TrackSessionStore.key))
+
+        // So is one that does not read back.
+        defaults.set(Data("nope".utf8), forKey: TrackSessionStore.key)
+        XCTAssertNil(TrackSessionStore.load(now: saved, defaults: defaults))
+        XCTAssertNil(defaults.data(forKey: TrackSessionStore.key))
+
+        TrackSessionStore.save(draft, defaults: defaults)
+        TrackSessionStore.clear(defaults: defaults)
+        XCTAssertNil(TrackSessionStore.load(now: saved, defaults: defaults))
+    }
+
+    // MARK: Goal-based presets and setup
+
+    func testGoalPresetsFollowTheGoalMile() {
+        let zones = PaceZones.forMile(412)
+        let short = WorkoutPresets.all.first { $0.id == "10x200-goal" }
+        XCTAssertEqual(short?.spec(zones: zones, goalMile: 330).targetRepSeconds ?? 0, 41.3, accuracy: 0.0001)
+        let longer = WorkoutPresets.all.first { $0.id == "3x400-goal" }
+        XCTAssertEqual(longer?.spec(zones: zones, goalMile: 330).targetRepSeconds ?? 0, 82.5, accuracy: 0.0001)
+        XCTAssertEqual(longer?.spec(zones: zones, goalMile: 345).targetRepSeconds ?? 0, 86.3, accuracy: 0.0001)
+        XCTAssertEqual(WorkoutPresets.goalPer400(goalMile: 330), 82.5, accuracy: 1e-9)
+    }
+
+    func testTimeTrialStartSpecUsesTheSessionTargetOrTheCurrentMile() throws {
+        let zones = PaceZones.forMile(412)
+        let trial = try XCTUnwrap(WorkoutPresets.all.first { $0.id == "mile-tt" })
+        XCTAssertEqual(trial.startSpec(zones: zones, goalMile: 330, mileTime: 395).targetRepSeconds, 395, accuracy: 0.0001)
+        XCTAssertEqual(trial.startSpec(zones: zones, goalMile: 330, mileTime: 395, planTarget: 365).targetRepSeconds,
+                       365, accuracy: 0.0001)
+        XCTAssertEqual(trial.startSpec(zones: zones, goalMile: 330, mileTime: 394.96).targetRepSeconds,
+                       395, accuracy: 0.0001)
+        XCTAssertEqual(trial.startSpec(zones: zones, goalMile: 330, mileTime: .nan).targetRepSeconds,
+                       330, accuracy: 0.0001)
+        XCTAssertEqual(trial.startSpec(zones: zones, goalMile: 330, mileTime: 0, planTarget: 0).targetRepSeconds,
+                       330, accuracy: 0.0001)
+        // Other presets are not changed by it.
+        let rep = try XCTUnwrap(WorkoutPresets.all.first { $0.id == "6x400-r" })
+        XCTAssertEqual(rep.startSpec(zones: zones, goalMile: 330, mileTime: 395, planTarget: 365),
+                       rep.spec(zones: zones, goalMile: 330))
+    }
+
+    func testEditingKeepsTheSameTargetPace() {
+        XCTAssertEqual(WorkoutEditing.rescaledTarget(82.5, fromDistance: 400, toDistance: 200), 41.25, accuracy: 1e-9)
+        XCTAssertEqual(WorkoutEditing.rescaledTarget(41.25, fromDistance: 200, toDistance: 800), 165, accuracy: 1e-9)
+        XCTAssertEqual(WorkoutEditing.rescaledTarget(80, fromDistance: 0, toDistance: 200), 80, accuracy: 1e-9)
+        XCTAssertEqual(WorkoutEditing.setRest(current: 0, repRest: 60, sets: 2), 120)
+        XCTAssertEqual(WorkoutEditing.setRest(current: 300, repRest: 60, sets: 2), 300)
+        XCTAssertEqual(WorkoutEditing.setRest(current: 0, repRest: 60, sets: 1), 0)
+    }
 }

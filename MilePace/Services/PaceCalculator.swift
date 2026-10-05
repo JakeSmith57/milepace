@@ -59,6 +59,22 @@ struct RoutePoint: Codable, Equatable {
     var segmentStart: Bool = false
 }
 
+/// When a pace on screen stops being believable.
+enum PaceFreshness {
+    /// A pace with no new accepted sample or Doppler update for longer than this many seconds is dropped.
+    static let staleSeconds: Double = 8
+
+    /// `pace`, or nil when the last update that could have changed it is more than `staleSeconds` before
+    /// `now`. With no update recorded yet there is nothing to judge, so `pace` is kept.
+    static func pace(_ pace: Double?, lastUpdate: Date?, now: Date) -> Double? {
+        guard let last = lastUpdate else { return pace }
+        if now.timeIntervalSince(last) > staleSeconds {
+            return nil
+        }
+        return pace
+    }
+}
+
 /// Rolling pace, average pace, distance and mile splits from GPS samples.
 struct PaceCalculator {
     static let maxAccuracy: Double = 20
@@ -106,7 +122,8 @@ struct PaceCalculator {
     private var jumpCount: Int = 0
     private var nextPointStartsSegment: Bool = true
     private var dopplerSpeed: Double?
-    private var dopplerUpdatedAt: Date?
+    /// Sample time of the newest Doppler speed update; nil when there is none (or after a pause).
+    private(set) var dopplerUpdatedAt: Date?
     /// Time of the newest sample seen while not paused.
     private var clock: Date?
 

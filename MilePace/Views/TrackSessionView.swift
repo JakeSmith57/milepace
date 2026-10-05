@@ -7,6 +7,7 @@ struct TrackSessionView: View {
     let onClose: () -> Void
 
     @Environment(\.modelContext) private var modelContext
+    @Environment(\.scenePhase) private var scenePhase
 
     @AppStorage(SettingsKey.mileTime) private var mileTime: Double = AppSettings.defaultMileTime
 
@@ -16,11 +17,19 @@ struct TrackSessionView: View {
     @State private var confirmEnd: Bool = false
     @State private var sessionStart: Date?
     @State private var paceOffer: PaceOffer?
+    /// While in the future, the lap button says "too soon".
+    @State private var tooSoonUntil: Date?
+    @State private var confirmDiscard: Bool = false
+    /// Set by the first save tap so a second one cannot insert the workout twice.
+    @State private var saving: Bool = false
+    @State private var saveFailed: Bool = false
 
     private let ticker = Timer.publish(every: 0.1, on: .main, in: .common).autoconnect()
 
-    init(spec: WorkoutSpec, onClose: @escaping () -> Void) {
-        _workout = State(initialValue: TrackWorkout(spec: spec))
+    /// `restored` carries a session that was running when the app was closed; it picks up where it was.
+    init(spec: WorkoutSpec, restored: TrackSessionDraft? = nil, onClose: @escaping () -> Void) {
+        _workout = State(initialValue: restored?.workout ?? TrackWorkout(spec: spec))
+        _sessionStart = State(initialValue: restored?.sessionStart)
         self.onClose = onClose
     }
 
@@ -41,6 +50,9 @@ struct TrackSessionView: View {
         }
         .onDisappear {
             UIApplication.shared.isIdleTimerDisabled = false
+        }
+        .onChange(of: scenePhase) { _, phase in
+            handleScenePhase(phase)
         }
         .sheet(item: $paceOffer) { offer in
             PaceUpdateSheet(offer: offer,
@@ -176,11 +188,11 @@ struct TrackSessionView: View {
     private var undoRow: some View {
         HStack {
             BracketButton(title: "undo last tap",
-                          minHeight: 36,
+                          minHeight: 44,
                           fullWidth: false,
                           size: .micro,
                           isEnabled: workout.canUndo) {
-                workout.undoLastTap()
+                undoLastTap()
             }
             Spacer(minLength: 0)
         }
@@ -197,6 +209,9 @@ struct TrackSessionView: View {
             BracketButton(title: "end workout", style: .inverted) {
                 workout.finishEarly()
                 confirmEnd = false
+                Coach.shared.stopSpeaking()
+                RestAlert.cancel()
+                persist()
             }
             BracketButton(title: "keep going") {
                 confirmEnd = false
@@ -217,7 +232,7 @@ struct TrackSessionView: View {
                 startWorkout()
             }
         case .running(_, let lap):
-            signalBlock(word: lapWord(lap: lap)) {
+            signalBlock(word: isTooSoon ? "too soon" : lapWord(lap: lap)) {
                 tapLap()
             }
         case .resting, .setRest:
@@ -225,6 +240,11 @@ struct TrackSessionView: View {
         case .finished:
             EmptyView()
         }
+    }
+
+    private var isTooSoon: Bool {
+        guard let until = tooSoonUntil else { return false }
+        return now < until
     }
 
     private func lapWord(lap: Int) -> String {
@@ -266,6 +286,7 @@ struct TrackSessionView: View {
             } else {
                 BracketButton(title: "skip rest") {
                     workout.skipRest(now: Date())
+                    persist()
                 }
             }
         }
@@ -279,6 +300,7 @@ struct TrackSessionView: View {
         workout.start(now: Date())
         sessionStart = Date()
         Coach.shared.lapHaptic()
+        persist()
     }
 
     private func tapLap() {
@@ -286,17 +308,29 @@ struct TrackSessionView: View {
         switch outcome {
         case .ignored:
             break
+        case .tooSoon:
+            Coach.shared.tooSoonHaptic()
+            tooSoonUntil = Date().addingTimeInterval(1)
         case .startedRep:
             Coach.shared.lapHaptic()
+            persist()
         case .lapDone(_, let delta, _, _):
             Coach.shared.lapHaptic()
             Coach.shared.announceLap(delta: delta)
+            persist()
+        }
+    }
+
+    private func undoLastTap() {
+        if workout.undoLastTap() {
+            persist()
         }
     }
 
     private func handleTick(_ date: Date) {
         now = date
         if workout.tick(now: date) {
+            RestAlert.cancel()
             Coach.shared.restEndHaptic()
             Coach.shared.announceGo()
         }
@@ -308,6 +342,34 @@ struct TrackSessionView: View {
             lastCountdownSecond = seconds
         } else {
             lastCountdownSecond = -1
+        }
+    }
+
+    // MARK: Saved state and the rest alert
+
+    /// Writes the session so a killed app can pick it up again. Nothing is written before the first rep.
+    private func persist() {
+        guard let began = sessionStart, workout.state != .ready else { return }
+        TrackSessionStore.save(TrackSessionDraft(workout: workout, sessionStart: began, savedAt: Date()))
+    }
+
+    /// Going to the background saves the session and, during a rest, schedules a notification for the
+    /// moment the rest ends; coming back cancels it.
+    private func handleScenePhase(_ phase: ScenePhase) {
+        switch phase {
+        case .background:
+            persist()
+            if workout.isResting && !workout.isRestComplete {
+                RestAlert.schedule(inSeconds: workout.restRemaining(at: Date()),
+                                   nextRep: workout.completedReps + 1,
+                                   totalReps: workout.totalReps)
+            }
+        case .active:
+            RestAlert.cancel()
+        case .inactive:
+            break
+        @unknown default:
+            break
         }
     }
 
@@ -323,32 +385,92 @@ struct TrackSessionView: View {
                                         repTimes: workout.repTimes,
                                         lapSplits: workout.lapSplits)
                         .padding(.top, Theme.s2)
-                    BracketButton(title: "save workout",
-                                  style: .signal,
-                                  minHeight: 72,
-                                  isEnabled: !workout.repTimes.isEmpty) {
-                        saveWorkout()
-                    }
-                    .padding(.top, Theme.s4)
-                    BracketButton(title: "discard") {
-                        PlanStore.shared.discardActive()
-                        onClose()
-                    }
-                    .padding(.top, Theme.s2)
-                    .padding(.bottom, Theme.s3)
+                    resultsUndo
+                    saveButton
+                    discardButton
                 }
                 .padding(.horizontal, Theme.s3)
             }
         }
     }
 
+    /// Takes the last lap tap back, which returns to the running state of the final lap.
+    @ViewBuilder
+    private var resultsUndo: some View {
+        if workout.canUndo {
+            HStack {
+                BracketButton(title: "undo last tap",
+                              minHeight: 44,
+                              fullWidth: false,
+                              size: .micro) {
+                    undoLastTap()
+                }
+                Spacer(minLength: 0)
+            }
+            .padding(.top, Theme.s3)
+        }
+    }
+
+    private var saveButton: some View {
+        VStack(alignment: .leading, spacing: Theme.s1) {
+            BracketButton(title: "save workout",
+                          style: .signal,
+                          minHeight: 72,
+                          isEnabled: !workout.repTimes.isEmpty && !saving) {
+                saveWorkout()
+            }
+            if saveFailed {
+                Text("could not save. try again.")
+                    .font(Theme.mono(.micro))
+                    .foregroundStyle(Theme.fg)
+            }
+        }
+        .padding(.top, Theme.s4)
+    }
+
+    /// The first tap arms it, the second throws the workout away.
+    private var discardButton: some View {
+        let style: BracketStyle = confirmDiscard ? .inverted : .plain
+        return BracketButton(title: confirmDiscard ? "yes, discard" : "discard", style: style) {
+            if confirmDiscard {
+                discardWorkout()
+            } else {
+                confirmDiscard = true
+            }
+        }
+        .padding(.top, Theme.s2)
+        .padding(.bottom, Theme.s3)
+    }
+
+    private func discardWorkout() {
+        TrackSessionStore.clear()
+        RestAlert.cancel()
+        Coach.shared.stopSpeaking()
+        PlanStore.shared.discardActive()
+        onClose()
+    }
+
     private func saveWorkout() {
+        guard !saving else { return }
+        saving = true
         let record = WorkoutRecord(date: sessionStart ?? Date(),
                                    name: workout.spec.name,
                                    spec: workout.spec,
                                    repTimes: workout.repTimes,
                                    lapSplits: workout.lapSplits)
         modelContext.insert(record)
+        do {
+            try modelContext.save()
+        } catch {
+            modelContext.delete(record)
+            saving = false
+            saveFailed = true
+            return
+        }
+        saveFailed = false
+        TrackSessionStore.clear()
+        RestAlert.cancel()
+        Coach.shared.stopSpeaking()
         PlanStore.shared.completeActive(.track(presetName: workout.spec.name))
         if let offer = timeTrialOffer() {
             paceOffer = offer
