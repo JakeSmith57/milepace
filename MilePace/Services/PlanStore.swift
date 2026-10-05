@@ -73,13 +73,28 @@ final class PlanStore {
     static let startDateKey = "planStartDate"
     /// `UserDefaults` key for the JSON-encoded `PlanProgress`.
     static let progressKey = "planProgress"
+    /// `UserDefaults` key for the "yyyy-MM-dd" the test week started on; absent or empty when it is off.
+    static let testWeekKey = SettingsKey.testWeekStart
+    /// `UserDefaults` key for the JSON-encoded `PlanProgress` of the test week. The real `progressKey`
+    /// is never read or written while the test week is on.
+    static let testProgressKey = "testPlanProgress"
 
-    /// nil when `plan.json` is missing or does not parse.
+    /// The plan everything shows: the bundled plan, or the test plan while the test week is on. nil when
+    /// `plan.json` is missing or does not parse.
     private(set) var plan: PlanFile?
-    /// The plan start as "yyyy-MM-dd". Only the text is kept; `startDate` converts it in the
+    /// The start of `plan` as "yyyy-MM-dd". Only the text is kept; `startDate` converts it in the
     /// calendar and time zone that are current at the moment it is asked for.
     private(set) var startYMD: String
+    /// Progress through `plan`.
     private(set) var progress: PlanProgress
+    /// The day the test week started on as "yyyy-MM-dd"; empty when it is off.
+    private(set) var testStartYMD: String
+    /// The bundled plan, kept aside while the test week is on.
+    private var realPlan: PlanFile?
+    /// The real plan's start as "yyyy-MM-dd" (the test plan has its own `startYMD`).
+    private(set) var realStartYMD: String
+    /// The real progress, kept aside while the test week is on and never changed then.
+    private var realProgress: PlanProgress
     /// Days from the plan start to today (negative before the start).
     private(set) var todayOffset: Int
     /// The plan session the runner started from the today screen, until it is saved or discarded.
@@ -109,16 +124,45 @@ final class PlanStore {
             Diagnostics.shared.log(.state, message)
         }
 
-        let start = PlanCalendar.parse(launch.startYMD) ?? Date()
-        plan = loaded
-        startYMD = launch.startYMD
-        progress = launch.progress
+        let realStart = PlanCalendar.parse(launch.startYMD) ?? Date()
+        realPlan = loaded
+        realStartYMD = launch.startYMD
+        realProgress = launch.progress
+
+        var activePlan = loaded
+        var activeStartYMD = launch.startYMD
+        var activeProgress = launch.progress
+        var activeTestYMD = ""
+        let savedTest = UserDefaults.standard.string(forKey: PlanStore.testWeekKey) ?? ""
+        if let testPlan = PlanStore.makeTestPlan(startYMD: savedTest, realStart: realStart) {
+            activePlan = testPlan
+            activeStartYMD = testPlan.startDate
+            activeProgress = PlanProgress.restored(from: UserDefaults.standard.data(forKey: PlanStore.testProgressKey),
+                                                   planVersion: TestWeek.planVersion)
+            activeTestYMD = savedTest
+        }
+        plan = activePlan
+        startYMD = activeStartYMD
+        progress = activeProgress
+        testStartYMD = activeTestYMD
+        let start = PlanCalendar.parse(activeStartYMD) ?? Date()
         todayOffset = PlanCalendar.activityDay(of: Date(), start: start)
+    }
+
+    /// The test plan for a saved start day; nil when there is none or it is not a date.
+    private static func makeTestPlan(startYMD: String, realStart: Date) -> PlanFile? {
+        guard !startYMD.isEmpty, let day = PlanCalendar.parse(startYMD) else { return nil }
+        return TestWeek.plan(startingOn: day, mileSeconds: AppSettings.mileTime, realStart: realStart)
     }
 
     /// The plan start in the current calendar and time zone. Computed on every call, never cached.
     var startDate: Date {
         return PlanCalendar.parse(startYMD) ?? PlanCalendar.local.startOfDay(for: Date())
+    }
+
+    /// The real plan's start in the current calendar and time zone, also while the test week is on.
+    var realStartDate: Date {
+        return PlanCalendar.parse(realStartYMD) ?? PlanCalendar.local.startOfDay(for: Date())
     }
 
     var schedule: PlanSchedule? {
@@ -140,6 +184,9 @@ final class PlanStore {
     /// the day it started on. A new day also forgets the active session, unless a run or track session
     /// is in progress.
     func refresh() {
+        if isTestWeek, shouldAutoEndTestWeek(), endTestWeek() {
+            return
+        }
         let offset = PlanCalendar.activityDay(of: Date(), start: startDate)
         let changed = offset != todayOffset
         if changed {
@@ -153,19 +200,118 @@ final class PlanStore {
         }
     }
 
+    /// Sets the real plan's start. While the test week is on only the real start changes; the test plan
+    /// keeps its own.
     func setStartDate(_ date: Date) {
         let text = PlanCalendar.ymd(date)
         guard PlanCalendar.parse(text) != nil else { return }
-        startYMD = text
+        realStartYMD = text
+        if !isTestWeek {
+            startYMD = text
+        }
         UserDefaults.standard.set(text, forKey: PlanStore.startDateKey)
         refresh()
         Reminders.shared.reschedule(clearDelivered: true)
     }
 
+    // MARK: Test week
+
+    /// True while the test week is on: `plan` is the test plan and the test progress key is in use.
+    var isTestWeek: Bool {
+        return !testStartYMD.isEmpty
+    }
+
+    /// A test week is offered before the real plan starts, when it is not on and nothing is recording.
+    var canStartTestWeek: Bool {
+        return !isTestWeek
+            && !runInProgress
+            && !trackInProgress
+            && TestWeekLifecycle.canStart(today: Date(), realStart: realStartDate)
+    }
+
+    /// "oct 5 \u{2013} oct 11" while the test week is on, from the day it started to its last Sunday.
+    var testWeekRangeText: String {
+        guard isTestWeek, let first = PlanCalendar.parse(testStartYMD) else { return "" }
+        let last = TestWeekLifecycle.lastDay(testStart: first, weeks: plan?.weeks.count ?? 1)
+        return PlanFormat.shortDate(first) + " \u{2013} " + PlanFormat.shortDate(last)
+    }
+
+    /// Whether the test week is over by the clock and nothing blocks ending it.
+    private func shouldAutoEndTestWeek() -> Bool {
+        guard let first = PlanCalendar.parse(testStartYMD) else { return true }
+        return TestWeekLifecycle.shouldAutoEnd(today: Date(),
+                                               testStart: first,
+                                               realStart: realStartDate,
+                                               weeks: plan?.weeks.count ?? 1,
+                                               sessionActive: runInProgress || trackInProgress)
+    }
+
+    /// Starts the test week today. False when it is not offered (see `canStartTestWeek`).
+    @discardableResult
+    func startTestWeek() -> Bool {
+        guard canStartTestWeek else { return false }
+        let ymd = PlanCalendar.ymd(TestWeek.startDay(now: Date()))
+        guard let testPlan = PlanStore.makeTestPlan(startYMD: ymd, realStart: realStartDate) else { return false }
+        realProgress = progress
+        UserDefaults.standard.removeObject(forKey: PlanStore.testProgressKey)
+        UserDefaults.standard.set(ymd, forKey: PlanStore.testWeekKey)
+        testStartYMD = ymd
+        plan = testPlan
+        startYMD = testPlan.startDate
+        progress = PlanProgress(planVersion: TestWeek.planVersion)
+        activeSessionIndex = nil
+        pendingRoute = nil
+        todayOffset = PlanCalendar.activityDay(of: Date(), start: startDate)
+        Diagnostics.shared.log(.state, "test week started \(ymd)")
+        Reminders.shared.reschedule(clearDelivered: true)
+        return true
+    }
+
+    /// Ends the test week: deletes every test run and workout, the test progress and any test draft, and
+    /// goes back to the real plan. False, with nothing changed, while a run or track session is going or
+    /// when the records could not be deleted.
+    @discardableResult
+    func endTestWeek() -> Bool {
+        guard isTestWeek, !runInProgress, !trackInProgress else { return false }
+        guard AppModel.shared.deleteTestRecords() else {
+            Diagnostics.shared.log(.state, "test week not ended: test records could not be deleted")
+            return false
+        }
+        clearTestDrafts()
+        UserDefaults.standard.removeObject(forKey: PlanStore.testProgressKey)
+        UserDefaults.standard.removeObject(forKey: PlanStore.testWeekKey)
+        testStartYMD = ""
+        plan = realPlan
+        startYMD = realStartYMD
+        progress = realProgress
+        activeSessionIndex = nil
+        pendingRoute = nil
+        todayOffset = PlanCalendar.activityDay(of: Date(), start: startDate)
+        Diagnostics.shared.log(.state, "test week ended")
+        Reminders.shared.reschedule(clearDelivered: true)
+        return true
+    }
+
+    /// Removes a saved run or track draft that belongs to the test week.
+    private func clearTestDrafts() {
+        if let draft = RunDraftStore.load(), draft.isTest {
+            RunDraftStore.clear()
+        }
+        if let draft = TrackSessionStore.load(), draft.isTest {
+            TrackSessionStore.clear()
+        }
+    }
+
     // MARK: Progress
 
+    /// Saves `progress` under the key of the plan that is showing, and keeps the real progress in step
+    /// when it is the real plan.
     private func persist() {
-        if let data = try? JSONEncoder().encode(progress) {
+        guard let data = try? JSONEncoder().encode(progress) else { return }
+        if isTestWeek {
+            UserDefaults.standard.set(data, forKey: PlanStore.testProgressKey)
+        } else {
+            realProgress = progress
             UserDefaults.standard.set(data, forKey: PlanStore.progressKey)
         }
     }
@@ -201,12 +347,16 @@ final class PlanStore {
     }
 
     /// Marks sessions done when a saved run or workout of the right kind started on their day, and
-    /// skips sessions missed more than two days ago. After a run or workout was deleted
+    /// skips sessions missed more than two days ago. Test records count only while the test week is on,
+    /// and then only they do. After a run or workout was deleted
     /// (`activitiesRemoved`), the done marks that activities earned are taken back first, so only the
     /// sessions that saved activities still match stay done; manual done and skip are never cleared.
     func reconcile(runs: [LoggedRun], workouts: [LoggedWorkout], activitiesRemoved: Bool = false) {
         guard let schedule = schedule else { return }
-        let activities = PlanActivities.days(runs: runs, workouts: workouts, start: startDate)
+        let testWeek = isTestWeek
+        let activities = PlanActivities.days(runs: TestRecordFilter.runs(runs, testWeek: testWeek),
+                                             workouts: TestRecordFilter.workouts(workouts, testWeek: testWeek),
+                                             start: startDate)
         if activitiesRemoved {
             apply(schedule.reconciledAfterRemoval(activities: activities, today: todayOffset))
         } else {

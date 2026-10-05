@@ -92,6 +92,9 @@ struct WorkoutPreset: Identifiable, Equatable {
 }
 
 enum WorkoutPresets {
+    /// Id of the short workout the test week uses.
+    static let testPresetId = "4x200-test"
+
     static let all: [WorkoutPreset] = [
         // Short reps
         WorkoutPreset(id: "6x200-r", name: "6 × 200 @ R", group: .shortReps, reps: 6, repDistance: 200,
@@ -147,7 +150,11 @@ enum WorkoutPresets {
 
         // Time trial
         WorkoutPreset(id: "mile-tt", name: "Mile time trial", group: .timeTrial, reps: 1, repDistance: 1609,
-                      targetKind: .goalMile, restSeconds: 0)
+                      targetKind: .goalMile, restSeconds: 0),
+
+        // Test week
+        WorkoutPreset(id: testPresetId, name: "4 \u{00D7} 200 (test)", group: .shortReps, reps: 4, repDistance: 200,
+                      targetKind: .zone(.repetition), restSeconds: 60)
     ]
 
     /// Goal pace per 400 m for a goal mile time ("goal 82.5/400").

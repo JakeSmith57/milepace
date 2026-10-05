@@ -17,6 +17,8 @@ final class RunRecord {
     var averageCadence: Double = 0
     /// Name of the guided road workout this run was; empty for a free run or a manual entry.
     var workoutName: String = ""
+    /// True for a run made during the test week; those are deleted when the test week ends.
+    var isTest: Bool = false
 
     init(date: Date,
          distanceMeters: Double,
@@ -26,7 +28,8 @@ final class RunRecord {
          notes: String = "",
          route: [RoutePoint] = [],
          averageCadence: Double = 0,
-         workoutName: String = "") {
+         workoutName: String = "",
+         isTest: Bool = false) {
         self.date = date
         self.distanceMeters = distanceMeters
         self.durationSeconds = durationSeconds
@@ -36,6 +39,7 @@ final class RunRecord {
         self.routeData = route.isEmpty ? Data() : ((try? JSONEncoder().encode(route)) ?? Data())
         self.averageCadence = averageCadence
         self.workoutName = workoutName
+        self.isTest = isTest
     }
 
     var route: [RoutePoint] {
@@ -54,17 +58,21 @@ final class WorkoutRecord {
     var repTimes: [Double]
     /// JSON-encoded `[[Double]]` (lap splits per rep).
     var lapSplitsData: Data
+    /// True for a workout made during the test week; those are deleted when the test week ends.
+    var isTest: Bool = false
 
     init(date: Date,
          name: String,
          spec: WorkoutSpec,
          repTimes: [Double],
-         lapSplits: [[Double]]) {
+         lapSplits: [[Double]],
+         isTest: Bool = false) {
         self.date = date
         self.name = name
         self.specData = (try? JSONEncoder().encode(spec)) ?? Data()
         self.repTimes = repTimes
         self.lapSplitsData = (try? JSONEncoder().encode(lapSplits)) ?? Data()
+        self.isTest = isTest
     }
 
     var spec: WorkoutSpec? {

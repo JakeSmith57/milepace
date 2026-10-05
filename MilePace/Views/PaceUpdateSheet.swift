@@ -13,6 +13,8 @@ struct PaceUpdateSheet: View {
     let currentSeconds: Double
     let onUpdate: () -> Void
     let onKeep: () -> Void
+    /// A test week trial: the paces are left alone and the only choice is "ok".
+    var practice: Bool = false
 
     private var oldText: String {
         return formatPace(secondsPerMile: currentSeconds)
@@ -22,21 +24,43 @@ struct PaceUpdateSheet: View {
         return formatPace(secondsPerMile: offer.seconds)
     }
 
+    private var practiceChoices: some View {
+        VStack(alignment: .leading, spacing: Theme.s3) {
+            Text("practice: paces not changed")
+                .font(Theme.mono(.body))
+                .foregroundStyle(Theme.fg)
+                .fixedSize(horizontal: false, vertical: true)
+            BracketButton(title: "ok", style: .signal, minHeight: 72) {
+                onKeep()
+            }
+        }
+    }
+
+    private var realChoices: some View {
+        VStack(alignment: .leading, spacing: Theme.s3) {
+            Text("update training paces from " + oldText + " to " + newText + "?")
+                .font(Theme.mono(.body))
+                .foregroundStyle(Theme.fg)
+                .fixedSize(horizontal: false, vertical: true)
+            BracketButton(title: "update paces", style: .signal, minHeight: 72) {
+                onUpdate()
+            }
+            BracketButton(title: "keep " + oldText) {
+                onKeep()
+            }
+        }
+    }
+
     var body: some View {
         VStack(spacing: 0) {
-            StatusLine(left: "milepace", center: "time trial", right: "")
+            StatusLine(left: "milepace", center: "time trial", right: "", tag: practice ? "test" : "")
             VStack(alignment: .leading, spacing: Theme.s3) {
                 HeroReadout(label: "mile", value: newText, size: .hero)
                     .padding(.top, Theme.s3)
-                Text("update training paces from " + oldText + " to " + newText + "?")
-                    .font(Theme.mono(.body))
-                    .foregroundStyle(Theme.fg)
-                    .fixedSize(horizontal: false, vertical: true)
-                BracketButton(title: "update paces", style: .signal, minHeight: 72) {
-                    onUpdate()
-                }
-                BracketButton(title: "keep " + oldText) {
-                    onKeep()
+                if practice {
+                    practiceChoices
+                } else {
+                    realChoices
                 }
                 Spacer(minLength: 0)
             }

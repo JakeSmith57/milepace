@@ -274,3 +274,14 @@ saved before a new session starts; plan version change resets progress and the s
 race-date check logged to Diagnostics; metronome turns off on headphone loss even mid-interruption; a failed run save
 rolls back and leaves only the recovery draft; "today" changes at 03:00 like activity days and doesn't clear the active
 session during a run.
+
+## v1.7: test week (PLAN-v9)
+`Models/TestWeek.swift` (pure: `TestWeek.plan`, `TestWeekLifecycle`, `TestRecordFilter`) builds a one-week plan (version 1000)
+from today's calendar week; `PlanStore` swaps `plan`/`startYMD`/`progress` to it while `testWeekStart` is set and keeps the
+real plan, start and progress aside (the real `planProgress` key is never touched). `RunRecord.isTest`, `WorkoutRecord.isTest`,
+`RunDraft.isTest`, `TrackSessionDraft.isTest` and `RunSummary.isTest` carry the flag; `PlanStore.endTestWeek()` (Set, or by itself
+on the real start day or after the test Sunday, never during a run or track session) deletes test records via
+`AppModel.deleteTestRecords()`, the test progress and test drafts. Preset counts changed: road 14 to 15, track 24 to 25.
+Most likely to need a compile fix: `PlanStore.init` (new stored properties before use), `RunDraft`/`TrackSessionDraft`
+(`init(from:)` in an extension with explicit `CodingKeys`), `SettingsView.testWeekSection` (`let` in a `@ViewBuilder`).
+Field checks: start a test week, do each session, end it and confirm Log is empty; kill the app mid test run and relaunch.

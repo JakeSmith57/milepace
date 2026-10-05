@@ -55,6 +55,8 @@ enum ReminderPlanner {
     static let weeklyMinutes: Int = 1080
     static let eveningBody = "log it, or open the app to skip or move it."
     static let startBody = "three short easy runs this week. see a doctor about your foot before week 5."
+    /// Put before every title while the test week is on.
+    static let testTitlePrefix = "test: "
 
     /// True for the reminders that may show a banner while the app is open.
     static func showsInForeground(_ identifier: String) -> Bool {
@@ -73,12 +75,15 @@ enum ReminderPlanner {
                       startDate: Date,
                       paceWindow: Double = PaceZones.defaultWindow,
                       windowDays: Int = 14,
-                      cap: Int = 60) -> [ReminderSpec] {
+                      cap: Int = 60,
+                      testWeek: Bool = false) -> [ReminderSpec] {
         guard settings.enabled, windowDays > 0, cap > 0 else { return [] }
         let window = todayOffset...(todayOffset + windowDays - 1)
 
         var specs: [ReminderSpec] = []
-        specs.append(contentsOf: startSpecs(window: window, settings: settings))
+        if !testWeek {
+            specs.append(contentsOf: startSpecs(window: window, settings: settings))
+        }
         specs.append(contentsOf: sessionSpecs(schedule: schedule, window: window, settings: settings,
                                               zones: zones, goalMile: goalMile, paceWindow: paceWindow))
         specs.append(contentsOf: timeTrialSpecs(schedule: schedule, window: window, settings: settings,
@@ -99,6 +104,9 @@ enum ReminderPlanner {
         }
         kept = unique(kept)
         kept = appendingMissed(to: kept, schedule: schedule, todayOffset: todayOffset, startDate: startDate)
+        if testWeek {
+            kept = kept.map { ReminderPlanner.prefixedTitle($0) }
+        }
         return Array(kept.prefix(cap))
     }
 
@@ -276,6 +284,17 @@ enum ReminderPlanner {
                                         category: old.category,
                                         sessionIndex: old.sessionIndex)
         return result
+    }
+
+    /// The same reminder with "test: " before its title.
+    private static func prefixedTitle(_ spec: ReminderSpec) -> ReminderSpec {
+        return ReminderSpec(id: spec.id,
+                            dayOffset: spec.dayOffset,
+                            minutes: spec.minutes,
+                            title: testTitlePrefix + spec.title,
+                            body: spec.body,
+                            category: spec.category,
+                            sessionIndex: spec.sessionIndex)
     }
 
     /// Whether a "mark done" or "skip" tapped on a notification made for `day` should still act: the

@@ -28,6 +28,9 @@ struct TrackSessionView: View {
     @State private var saveFailed: Bool = false
     /// Set when an unsaved finished workout from earlier could not be saved before this one started.
     @State private var startBlocked: Bool = false
+    /// Whether this session belongs to the test week. A resumed session keeps what it was saved with; a
+    /// new one takes the state when its first rep starts.
+    @State private var isTest: Bool
 
     private let ticker = Timer.publish(every: 0.1, on: .main, in: .common).autoconnect()
 
@@ -35,6 +38,7 @@ struct TrackSessionView: View {
     init(spec: WorkoutSpec, restored: TrackSessionDraft? = nil, onClose: @escaping () -> Void) {
         _workout = State(initialValue: restored?.workout ?? TrackWorkout(spec: spec))
         _sessionStart = State(initialValue: restored?.sessionStart)
+        _isTest = State(initialValue: restored?.isTest ?? PlanStore.shared.isTestWeek)
         self.onClose = onClose
     }
 
@@ -65,7 +69,8 @@ struct TrackSessionView: View {
             PaceUpdateSheet(offer: offer,
                             currentSeconds: mileTime,
                             onUpdate: { applyPaceOffer(offer) },
-                            onKeep: { keepPaces() })
+                            onKeep: { keepPaces() },
+                            practice: isTest)
         }
     }
 
@@ -101,7 +106,8 @@ struct TrackSessionView: View {
                    center: workout.spec.name,
                    right: sessionClock,
                    recording: isRunning,
-                   accessory: StatusAccessory(title: "end", action: { confirmEnd = true }))
+                   accessory: StatusAccessory(title: "end", action: { confirmEnd = true }),
+                   tag: isTest ? "test" : "")
     }
 
     private var banner: Banner {
@@ -309,6 +315,7 @@ struct TrackSessionView: View {
             return
         }
         startBlocked = false
+        isTest = PlanStore.shared.isTestWeek
         workout.start(now: Date())
         sessionStart = Date()
         Coach.shared.lapHaptic()
@@ -368,7 +375,7 @@ struct TrackSessionView: View {
               let began = sessionStart else {
             return
         }
-        TrackSessionStore.save(TrackSessionDraft(workout: workout, sessionStart: began, savedAt: Date()))
+        TrackSessionStore.save(TrackSessionDraft(workout: workout, sessionStart: began, savedAt: Date(), isTest: isTest))
     }
 
     /// A finished workout left in the draft (never saved, never discarded) is saved as a workout record
@@ -417,7 +424,7 @@ struct TrackSessionView: View {
 
     private var resultsView: some View {
         VStack(spacing: 0) {
-            StatusLine(left: "milepace", center: "results", right: "")
+            StatusLine(left: "milepace", center: "results", right: "", tag: isTest ? "test" : "")
             ScrollView {
                 VStack(alignment: .leading, spacing: 0) {
                     SectionHeader(workout.spec.name)
@@ -498,7 +505,8 @@ struct TrackSessionView: View {
                                    name: workout.spec.name,
                                    spec: workout.spec,
                                    repTimes: workout.repTimes,
-                                   lapSplits: workout.lapSplits)
+                                   lapSplits: workout.lapSplits,
+                                   isTest: isTest)
         modelContext.insert(record)
         do {
             try modelContext.save()

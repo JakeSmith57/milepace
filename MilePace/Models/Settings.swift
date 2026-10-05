@@ -27,6 +27,9 @@ enum SettingsKey {
     static let reminderMorningMinutes = "reminderMorningMinutes"
     static let reminderEveningMinutes = "reminderEveningMinutes"
     static let paceWindow = "paceWindowSeconds"
+    /// "yyyy-MM-dd" the test week started on; empty or missing when it is off. Not a view setting:
+    /// `PlanStore` owns it, so starting and ending always clean up properly.
+    static let testWeekStart = "testWeekStart"
 }
 
 /// Light, dark or follow the system.

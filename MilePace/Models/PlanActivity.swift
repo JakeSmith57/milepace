@@ -7,6 +7,8 @@ struct LoggedRun: Equatable {
     let meters: Double
     /// Name of the guided road workout; empty for a free run.
     let workoutName: String
+    /// Made during the test week.
+    var isTest: Bool = false
 }
 
 /// A saved track workout, reduced to what the plan needs.
@@ -16,6 +18,8 @@ struct LoggedWorkout: Equatable {
     let name: String
     /// Total meters of the reps that were run.
     let repMeters: Double
+    /// Made during the test week.
+    var isTest: Bool = false
 }
 
 /// One saved activity placed on a plan day.

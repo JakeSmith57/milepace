@@ -101,7 +101,10 @@ final class Reminders: NSObject, UNUserNotificationCenterDelegate {
         let start = store.startDate
         // Minutes into the plan day that is "today" (it changes at 03:00, so this can pass 1440).
         let nowMinutes = PlanCalendar.minutesIntoDay(now: Date(), offset: store.todayOffset, start: start)
-        let milesByDay = PlanActivities.milesByDay(runs: runs, workouts: workouts, start: start)
+        let testWeek = store.isTestWeek
+        let milesByDay = PlanActivities.milesByDay(runs: TestRecordFilter.runs(runs, testWeek: testWeek),
+                                                   workouts: TestRecordFilter.workouts(workouts, testWeek: testWeek),
+                                                   start: start)
         return ReminderPlanner.build(schedule: schedule,
                                      todayOffset: store.todayOffset,
                                      nowMinutes: nowMinutes,
@@ -110,7 +113,8 @@ final class Reminders: NSObject, UNUserNotificationCenterDelegate {
                                      zones: AppSettings.zones,
                                      goalMile: AppSettings.goalMile,
                                      startDate: start,
-                                     paceWindow: AppSettings.paceWindow)
+                                     paceWindow: AppSettings.paceWindow,
+                                     testWeek: testWeek)
     }
 
     private func makeRequest(for spec: ReminderSpec, start: Date) -> UNNotificationRequest {

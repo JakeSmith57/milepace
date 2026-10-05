@@ -115,6 +115,10 @@ struct RunView: View {
         .onChange(of: PlanStore.shared.pendingRoute) { _, _ in
             applyPendingRoute()
         }
+        .onChange(of: PlanStore.shared.isTestWeek) { _, _ in
+            // Ending the test week removes its unfinished run, so the card for it must go too.
+            reloadDraft()
+        }
         .onChange(of: scenePhase) { _, phase in
             if phase == .background && tracker.phase != .idle {
                 tracker.checkpoint()
@@ -243,7 +247,8 @@ struct RunView: View {
                           right: idle ? "" : formatDuration(tracker.elapsed),
                           recording: tracker.phase == .running,
                           searching: tracker.gpsState.isSearching,
-                          accessories: accessoryList)
+                          accessories: accessoryList,
+                          tag: store.isTestWeek ? "test" : "")
     }
 
     // MARK: Idle
@@ -766,7 +771,8 @@ struct RunView: View {
                                notes: "",
                                route: result.route,
                                averageCadence: result.averageCadence ?? 0,
-                               workoutName: result.workoutName ?? "")
+                               workoutName: result.workoutName ?? "",
+                               isTest: result.isTest)
         modelContext.insert(record)
         do {
             try modelContext.save()

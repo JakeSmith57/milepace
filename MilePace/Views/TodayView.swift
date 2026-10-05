@@ -82,12 +82,13 @@ struct TodayView: View {
         return [mileTime, goalMile, paceWindow]
     }
 
+    /// The saved runs this plan counts: test runs during the test week, the others otherwise.
     private var loggedRuns: [LoggedRun] {
-        return runs.map { LoggedRun(record: $0) }
+        return TestRecordFilter.runs(runs.map { LoggedRun(record: $0) }, testWeek: store.isTestWeek)
     }
 
     private var loggedWorkouts: [LoggedWorkout] {
-        return workouts.map { LoggedWorkout(record: $0) }
+        return TestRecordFilter.workouts(workouts.map { LoggedWorkout(record: $0) }, testWeek: store.isTestWeek)
     }
 
     private func reconcile(removed: Bool = false) {
@@ -124,7 +125,10 @@ struct TodayView: View {
 
     private var statusLine: some View {
         let texts = statusTexts
-        return StatusLine(left: "milepace", center: texts.center, right: texts.right)
+        return StatusLine(left: "milepace",
+                          center: texts.center,
+                          right: texts.right,
+                          tag: store.isTestWeek ? "test" : "")
     }
 
     // MARK: Content
@@ -268,7 +272,7 @@ struct TodayView: View {
     private func todayBlock(_ schedule: PlanSchedule, _ index: Int) -> some View {
         let session = schedule.plan.sessions[index]
         return VStack(alignment: .leading, spacing: Theme.s2) {
-            micro("today")
+            micro(store.isTestWeek ? "today  test week" : "today")
             Text(session.title)
                 .font(Theme.mono(.title))
                 .fixedSize(horizontal: false, vertical: true)
@@ -364,6 +368,18 @@ struct TodayView: View {
             heading("plan starts " + dayLabel(0))
             bodyText("in " + PlanFormat.daysText(-today))
             weekOneList(schedule)
+            testWeekOffer
+        }
+    }
+
+    /// Before the plan starts: try the whole app for a week, with nothing carried into the real plan.
+    @ViewBuilder
+    private var testWeekOffer: some View {
+        if store.canStartTestWeek {
+            BracketButton(title: "start a test week") {
+                store.startTestWeek()
+            }
+            .padding(.top, Theme.s2)
         }
     }
 
@@ -381,8 +397,8 @@ struct TodayView: View {
 
     private var finishedBlock: some View {
         return outlined {
-            heading("plan complete")
-            bodyText("the race is behind you.")
+            heading(store.isTestWeek ? "test week complete" : "plan complete")
+            bodyText(store.isTestWeek ? "end it in set to delete the test data." : "the race is behind you.")
         }
     }
 

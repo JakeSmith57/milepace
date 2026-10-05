@@ -78,6 +78,8 @@ struct StatusLine: View {
     var accessory: StatusAccessory? = nil
     /// More tappable words after `accessory`, such as "[ map ]" next to "[ diag ]".
     var accessories: [StatusAccessory] = []
+    /// A small plan-purple label after the left text, such as "test" during the test week.
+    var tag: String = ""
 
     private var allAccessories: [StatusAccessory] {
         var all: [StatusAccessory] = []
@@ -122,6 +124,9 @@ struct StatusLine: View {
     private var leftGroup: some View {
         HStack(spacing: Theme.s2) {
             micro(left)
+            if !tag.isEmpty {
+                PlanTag(text: tag)
+            }
             ForEach(Array(allAccessories.enumerated()), id: \.offset) { item in
                 accessoryButton(item.element)
             }

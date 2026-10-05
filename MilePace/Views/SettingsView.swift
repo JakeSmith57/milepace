@@ -29,7 +29,9 @@ struct SettingsView: View {
     @State private var mileInvalid: Bool = false
     @State private var goalInvalid: Bool = false
     @State private var confirmReset: Bool = false
-    @State private var planStart: Date = PlanStore.shared.startDate
+    @State private var planStart: Date = PlanStore.shared.realStartDate
+    @State private var confirmEndTest: Bool = false
+    @State private var endTestFailed: Bool = false
 
     private var zones: PaceZones {
         return PaceZones.forMile(mileTime)
@@ -71,12 +73,13 @@ struct SettingsView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            StatusLine(left: "milepace", center: "set", right: "v1.6")
+            StatusLine(left: "milepace", center: "set", right: "v1.7")
             ScrollView {
                 VStack(alignment: .leading, spacing: 0) {
                     mileTimes
                     trainingZones
                     planSection
+                    testWeekSection
                     remindersSection
                     voiceAndFeedback
                     trackOptions
@@ -92,7 +95,7 @@ struct SettingsView: View {
         .onAppear {
             mileText = formatDuration(mileTime)
             goalText = formatDuration(goalMile)
-            planStart = PlanStore.shared.startDate
+            planStart = PlanStore.shared.realStartDate
             Reminders.shared.refreshAuthorization()
         }
         .onChange(of: reminderSettings) { _, _ in
@@ -100,7 +103,7 @@ struct SettingsView: View {
         }
         .onChange(of: planStart) { _, newValue in
             let day = PlanCalendar.local.startOfDay(for: newValue)
-            if day != PlanStore.shared.startDate {
+            if day != PlanStore.shared.realStartDate {
                 PlanStore.shared.setStartDate(day)
             }
         }
@@ -202,10 +205,11 @@ struct SettingsView: View {
         }
     }
 
-    /// The race day the plan currently ends on, from the plan file and the start date above.
+    /// The race day the plan currently ends on, from the plan file and the start date above. Not shown
+    /// during the test week, when the plan in use is the test plan.
     @ViewBuilder
     private var raceRow: some View {
-        if let schedule = PlanStore.shared.schedule {
+        if !PlanStore.shared.isTestWeek, let schedule = PlanStore.shared.schedule {
             ReadoutRow(key: "race",
                        value: PlanFormat.dayLabel(offset: schedule.raceDayOffset,
                                                   start: PlanStore.shared.startDate))
@@ -248,6 +252,70 @@ struct SettingsView: View {
                 confirmReset = true
             }
         }
+    }
+
+    // MARK: Test week
+
+    /// Offered before the real plan starts; while it is on, shows its dates and how to end it.
+    @ViewBuilder
+    private var testWeekSection: some View {
+        let store = PlanStore.shared
+        if store.isTestWeek {
+            testWeekOn(store)
+        } else if store.canStartTestWeek {
+            testWeekOff
+        }
+    }
+
+    private var testWeekOff: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            SectionHeader("test week")
+            note("try the plan this week. test runs and progress are deleted when the test ends or the real plan starts. settings you change, like mile time or voices, are real and stay.")
+            BracketButton(title: "start test week", style: .plan) {
+                PlanStore.shared.startTestWeek()
+            }
+            .padding(.top, Theme.s3)
+        }
+    }
+
+    private func testWeekOn(_ store: PlanStore) -> some View {
+        let busy = store.runInProgress || store.trackInProgress
+        return VStack(alignment: .leading, spacing: 0) {
+            SectionHeader("test week")
+            Text("test week: " + store.testWeekRangeText)
+                .font(Theme.mono(.body))
+                .foregroundStyle(Theme.fg)
+                .padding(.top, Theme.s2)
+            note(busy ? "finish the run or workout first, then end the test week." : "ending deletes the test runs, workouts and progress. settings stay.")
+            if endTestFailed {
+                note("could not end the test week. try again.")
+            }
+            endTestControls(busy: busy)
+                .padding(.top, Theme.s3)
+        }
+    }
+
+    @ViewBuilder
+    private func endTestControls(busy: Bool) -> some View {
+        if confirmEndTest {
+            VStack(spacing: Theme.s2) {
+                BracketButton(title: "yes, end and delete test data", style: .inverted, isEnabled: !busy) {
+                    endTestWeek()
+                }
+                BracketButton(title: "cancel") {
+                    confirmEndTest = false
+                }
+            }
+        } else {
+            BracketButton(title: "end test week", isEnabled: !busy) {
+                confirmEndTest = true
+            }
+        }
+    }
+
+    private func endTestWeek() {
+        endTestFailed = !PlanStore.shared.endTestWeek()
+        confirmEndTest = false
     }
 
     // MARK: Reminders

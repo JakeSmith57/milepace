@@ -28,7 +28,8 @@ struct HistoryView: View {
             VStack(spacing: 0) {
                 StatusLine(left: "milepace",
                            center: "week of " + (thisWeek?.label ?? "--"),
-                           right: String(format: "%.1f", thisWeekMiles) + " mi")
+                           right: String(format: "%.1f", thisWeekMiles) + " mi",
+                           tag: PlanStore.shared.isTestWeek ? "test" : "")
                 ScrollView {
                     VStack(alignment: .leading, spacing: 0) {
                         HeroReadout(label: "this week",
@@ -145,8 +146,14 @@ struct HistoryView: View {
 
     private func runRow(_ run: RunRecord) -> some View {
         let time = run.durationSeconds > 0 ? formatDuration(run.durationSeconds) : "--"
-        return ReadoutRow(key: ReadoutFormat.day(run.date),
-                          value: formatMiles(run.distanceMeters) + "  " + time)
+        return VStack(alignment: .leading, spacing: 0) {
+            if run.isTest {
+                PlanTag(text: "test")
+                    .padding(.top, Theme.s1)
+            }
+            ReadoutRow(key: ReadoutFormat.day(run.date),
+                       value: formatMiles(run.distanceMeters) + "  " + time)
+        }
     }
 
     private func workoutRow(_ workout: WorkoutRecord) -> some View {
@@ -154,10 +161,15 @@ struct HistoryView: View {
             ReadoutRow(key: ReadoutFormat.day(workout.date),
                        value: "\(workout.repTimes.count) reps",
                        ruled: false)
-            Text(workout.name)
-                .font(Theme.mono(.micro))
-                .foregroundStyle(Theme.dim)
-                .padding(.bottom, Theme.s2)
+            HStack(spacing: Theme.s2) {
+                Text(workout.name)
+                    .font(Theme.mono(.micro))
+                    .foregroundStyle(Theme.dim)
+                if workout.isTest {
+                    PlanTag(text: "test")
+                }
+            }
+            .padding(.bottom, Theme.s2)
             DashedRule()
         }
     }
@@ -269,7 +281,8 @@ struct AddMilesView: View {
                                durationSeconds: duration,
                                averagePace: pace,
                                splits: [],
-                               notes: "")
+                               notes: "",
+                               isTest: PlanStore.shared.isTestWeek)
         modelContext.insert(record)
         try? modelContext.save()
         dismiss()

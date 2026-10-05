@@ -13,6 +13,19 @@ struct RunDraft: Codable, Equatable {
     var cadenceSteps: Int
     /// Name of the guided workout; empty for a free run.
     var workoutName: String
+    /// The run was made during the test week. Drafts saved before v1.7 have no such field and read as false.
+    var isTest: Bool = false
+
+    enum CodingKeys: String, CodingKey {
+        case start
+        case distanceMeters
+        case movingSeconds
+        case splits
+        case route
+        case cadenceSteps
+        case workoutName
+        case isTest
+    }
 
     /// Seconds per mile, 0 with under 10 m covered (the same rule a finished run uses).
     var averagePace: Double {
@@ -46,7 +59,8 @@ struct RunDraft: Codable, Equatable {
                          notes: "",
                          route: route,
                          averageCadence: averageCadence,
-                         workoutName: workoutName)
+                         workoutName: workoutName,
+                         isTest: isTest)
     }
 
     func encoded() -> Data? {
@@ -59,6 +73,19 @@ struct RunDraft: Codable, Equatable {
 }
 
 extension RunDraft {
+    /// Reads a draft, with `isTest` false when the saved JSON predates it.
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        start = try container.decode(Date.self, forKey: .start)
+        distanceMeters = try container.decode(Double.self, forKey: .distanceMeters)
+        movingSeconds = try container.decode(Double.self, forKey: .movingSeconds)
+        splits = try container.decode([Double].self, forKey: .splits)
+        route = try container.decode([RoutePoint].self, forKey: .route)
+        cadenceSteps = try container.decode(Int.self, forKey: .cadenceSteps)
+        workoutName = try container.decode(String.self, forKey: .workoutName)
+        isTest = try container.decodeIfPresent(Bool.self, forKey: .isTest) ?? false
+    }
+
     /// A finished run as a draft, for a run whose save failed: the recovery card then offers the whole run,
     /// not the last 30 second checkpoint. The pedometer gave an average, so the step count is rebuilt from it.
     init(summary: RunSummary) {
@@ -72,7 +99,8 @@ extension RunDraft {
                   splits: summary.splits,
                   route: summary.route,
                   cadenceSteps: steps,
-                  workoutName: summary.workoutName ?? "")
+                  workoutName: summary.workoutName ?? "",
+                  isTest: summary.isTest)
     }
 }
 

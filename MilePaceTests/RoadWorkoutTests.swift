@@ -165,7 +165,7 @@ final class RoadWorkoutTests: XCTestCase {
 
     func testPresets() throws {
         let presets = RoadWorkoutPresets.all
-        XCTAssertEqual(presets.count, 14)
+        XCTAssertEqual(presets.count, 15)
         XCTAssertEqual(Set(presets.map { $0.id }).count, presets.count)
         XCTAssertEqual(presets.first?.name, "3 × 5 min threshold")
         XCTAssertTrue(presets.contains { $0.name == "20 min tempo" })

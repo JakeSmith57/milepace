@@ -24,6 +24,8 @@ struct RunSummary: Identifiable, Equatable {
     var route: [RoutePoint] = []
     /// What the end-of-run pedometer query needs; nil when the run never had a cadence tracker running.
     var cadencePlan: CadenceQueryPlan? = nil
+    /// The run was made during the test week.
+    var isTest: Bool = false
 }
 
 @Observable
@@ -68,6 +70,8 @@ final class LocationTracker: NSObject, CLLocationManagerDelegate {
     @ObservationIgnored private var calculator = PaceCalculator()
     @ObservationIgnored private var timer: Timer?
     @ObservationIgnored private var startedAt = Date()
+    /// Whether the run in progress began during the test week; fixed when it starts.
+    @ObservationIgnored private var startedAsTest = false
     /// When a sample last changed the pace: one that added distance (or anchored the route) or one that
     /// updated the Doppler speed. Fixes that are rejected do not count, so a frozen pace goes blank.
     @ObservationIgnored private var paceUpdatedAt: Date?
@@ -199,6 +203,7 @@ final class LocationTracker: NSObject, CLLocationManagerDelegate {
         calculator = PaceCalculator()
         calculator.start(at: now)
         startedAt = now
+        startedAsTest = PlanStore.shared.isTestWeek
         paceUpdatedAt = nil
         lastCheckpointElapsed = 0
         warmupTimedOut = false
@@ -293,7 +298,8 @@ final class LocationTracker: NSObject, CLLocationManagerDelegate {
                                  workoutName: workout?.spec.name,
                                  averageCadence: cadence.averageSPM(movingSeconds: duration),
                                  route: calculator.route,
-                                 cadencePlan: cadence.queryPlan(runStart: startedAt, end: now))
+                                 cadencePlan: cadence.queryPlan(runStart: startedAt, end: now),
+                                 isTest: startedAsTest)
 
         cadence.stop()
         cueTracker = nil
@@ -340,7 +346,8 @@ final class LocationTracker: NSObject, CLLocationManagerDelegate {
                         splits: calculator.splits,
                         route: calculator.route,
                         cadenceSteps: cadence.movingSteps,
-                        workoutName: workout?.spec.name ?? "")
+                        workoutName: workout?.spec.name ?? "",
+                        isTest: startedAsTest)
     }
 
     /// Writes the draft now (the app is going to the background).

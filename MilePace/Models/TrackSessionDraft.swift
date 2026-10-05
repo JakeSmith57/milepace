@@ -11,6 +11,15 @@ struct TrackSessionDraft: Codable, Equatable {
     var sessionStart: Date
     /// When this draft was written.
     var savedAt: Date
+    /// The session was made during the test week. Drafts saved before v1.7 read as false.
+    var isTest: Bool = false
+
+    enum CodingKeys: String, CodingKey {
+        case workout
+        case sessionStart
+        case savedAt
+        case isTest
+    }
 
     /// Still worth offering: written within the last three hours (and not from the future).
     func isFresh(now: Date) -> Bool {
@@ -39,7 +48,8 @@ struct TrackSessionDraft: Codable, Equatable {
                              name: workout.spec.name,
                              spec: workout.spec,
                              repTimes: workout.repTimes,
-                             lapSplits: workout.lapSplits)
+                             lapSplits: workout.lapSplits,
+                             isTest: isTest)
     }
 
     /// "resume 6 \u{00D7} 400 @ R", or "unsaved results: 6 \u{00D7} 400 @ R" when the workout was already over.
@@ -82,5 +92,16 @@ enum TrackSessionStore {
 
     static func clear(defaults: UserDefaults = UserDefaults.standard) {
         defaults.removeObject(forKey: key)
+    }
+}
+
+extension TrackSessionDraft {
+    /// Reads a draft, with `isTest` false when the saved JSON predates it.
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        workout = try container.decode(TrackWorkout.self, forKey: .workout)
+        sessionStart = try container.decode(Date.self, forKey: .sessionStart)
+        savedAt = try container.decode(Date.self, forKey: .savedAt)
+        isTest = try container.decodeIfPresent(Bool.self, forKey: .isTest) ?? false
     }
 }

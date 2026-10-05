@@ -40,7 +40,10 @@ struct TrackSetupView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            StatusLine(left: "milepace", center: "track", right: goalHeader)
+            StatusLine(left: "milepace",
+                       center: "track",
+                       right: goalHeader,
+                       tag: store.isTestWeek ? "test" : "")
             planBanner
             resumeCard
             ScrollView {
@@ -87,6 +90,10 @@ struct TrackSetupView: View {
         }
         .onChange(of: PlanStore.shared.pendingRoute) { _, _ in
             applyPendingRoute()
+        }
+        .onChange(of: PlanStore.shared.isTestWeek) { _, _ in
+            // Ending the test week removes its unfinished session, so the card for it must go too.
+            reloadDraft()
         }
     }
 

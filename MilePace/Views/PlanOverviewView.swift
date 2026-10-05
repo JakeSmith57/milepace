@@ -24,7 +24,10 @@ struct PlanOverviewView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            StatusLine(left: "milepace", center: "plan", right: "\(store.plan?.weeks.count ?? 0) weeks")
+            StatusLine(left: "milepace",
+                       center: "plan",
+                       right: "\(store.plan?.weeks.count ?? 0) weeks",
+                       tag: store.isTestWeek ? "test" : "")
             if let week = detailWeek {
                 PlanWeekDetailView(week: week, onBack: { detailWeek = nil })
             } else {
@@ -43,8 +46,10 @@ struct PlanOverviewView: View {
                 backBar
                 ScrollView {
                     VStack(alignment: .leading, spacing: 0) {
-                        ReadoutRow(key: "race",
-                                   value: PlanFormat.dayLabel(offset: schedule.raceDayOffset, start: store.startDate))
+                        if !store.isTestWeek {
+                            ReadoutRow(key: "race",
+                                       value: PlanFormat.dayLabel(offset: schedule.raceDayOffset, start: store.startDate))
+                        }
                         ForEach(phases(schedule), id: \.self) { phase in
                             phaseSection(schedule, phase)
                         }

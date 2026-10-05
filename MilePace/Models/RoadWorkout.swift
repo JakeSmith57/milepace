@@ -87,6 +87,9 @@ enum RoadWorkoutPresets {
                                recoverySeconds: recovery)
     }
 
+    /// Name of the short workout the test week uses.
+    static let testPresetName = "2 \u{00D7} 2 min threshold (test)"
+
     static let all: [RoadWorkoutSpec] = [
         timed(reps: 3, minutes: 5, recovery: 120),
         timed(reps: 4, minutes: 5, recovery: 120),
@@ -101,7 +104,12 @@ enum RoadWorkoutPresets {
         timed(reps: 1, minutes: 20, recovery: 0),
         timed(reps: 1, minutes: 25, recovery: 0),
         distance(reps: 3, miles: 1, label: "1", recovery: 60),
-        distance(reps: 3, miles: 1.5, label: "1.5", recovery: 120)
+        distance(reps: 3, miles: 1.5, label: "1.5", recovery: 120),
+        RoadWorkoutSpec(name: testPresetName,
+                        reps: 2,
+                        length: .time(seconds: 120),
+                        target: .threshold,
+                        recoverySeconds: 60)
     ]
 }
 
