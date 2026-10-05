@@ -64,7 +64,14 @@ jobs:
             -scheme MilePace \
             -destination "id=$SIM_ID" \
             -resultBundlePath build/TestResults.xcresult \
-            CODE_SIGNING_ALLOWED=NO
+            CODE_SIGNING_ALLOWED=NO 2>&1 | tee "$RUNNER_TEMP/build.log"
+
+      - name: Report build and test errors as annotations
+        if: failure()
+        run: |
+          grep -E "error:|: error|Test Case .* failed|XCTAssert|failed \(" "$RUNNER_TEMP/build.log" | grep -v "^\s*$" | sort -u | head -40 | while IFS= read -r line; do
+            echo "::error::${line:0:600}"
+          done
 
       - name: Upload test results
         if: failure()
