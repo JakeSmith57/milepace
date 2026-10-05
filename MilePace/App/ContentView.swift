@@ -22,6 +22,12 @@ struct ContentView: View {
                 selection = tab(for: route)
             }
         }
+        .onChange(of: PlanStore.shared.requestedTab) { _, tab in
+            if let tab = tab {
+                selection = tab
+                PlanStore.shared.requestedTab = nil
+            }
+        }
         .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillShowNotification)) { _ in
             keyboardVisible = true
         }

@@ -1,4 +1,5 @@
 import SwiftUI
+import UserNotifications
 
 @MainActor
 struct SettingsView: View {
@@ -14,6 +15,13 @@ struct SettingsView: View {
     @AppStorage(SettingsKey.metronomeVolume) private var metronomeVolume: Double = AppSettings.defaultMetronomeVolume
     @AppStorage(SettingsKey.displayMode) private var displayMode: DisplayMode = .system
     @AppStorage(SettingsKey.diagnostics) private var diagnosticsEnabled: Bool = false
+    @AppStorage(SettingsKey.remindersEnabled) private var remindersEnabled: Bool = true
+    @AppStorage(SettingsKey.reminderMorning) private var reminderMorning: Bool = true
+    @AppStorage(SettingsKey.reminderEvening) private var reminderEvening: Bool = true
+    @AppStorage(SettingsKey.reminderTimeTrial) private var reminderTimeTrial: Bool = true
+    @AppStorage(SettingsKey.reminderWeekly) private var reminderWeekly: Bool = true
+    @AppStorage(SettingsKey.reminderMorningMinutes) private var morningMinutes: Int = ReminderSettings.defaultMorningMinutes
+    @AppStorage(SettingsKey.reminderEveningMinutes) private var eveningMinutes: Int = ReminderSettings.defaultEveningMinutes
 
     @State private var mileText: String = ""
     @State private var goalText: String = ""
@@ -40,18 +48,29 @@ struct SettingsView: View {
                        set: { metronomeVolume = Double($0) / 100 })
     }
 
+    private var reminderSettings: ReminderSettings {
+        return ReminderSettings(enabled: remindersEnabled,
+                                morning: reminderMorning,
+                                evening: reminderEvening,
+                                timeTrial: reminderTimeTrial,
+                                weekly: reminderWeekly,
+                                morningMinutes: morningMinutes,
+                                eveningMinutes: eveningMinutes)
+    }
+
     private func paceRange(_ range: ClosedRange<Double>) -> String {
         return ReadoutFormat.paceRange(range) + " /mi"
     }
 
     var body: some View {
         VStack(spacing: 0) {
-            StatusLine(left: "milepace", center: "set", right: "v1.3")
+            StatusLine(left: "milepace", center: "set", right: "v1.4")
             ScrollView {
                 VStack(alignment: .leading, spacing: 0) {
                     mileTimes
                     trainingZones
                     planSection
+                    remindersSection
                     voiceAndFeedback
                     trackOptions
                     metronome
@@ -67,6 +86,10 @@ struct SettingsView: View {
             mileText = formatDuration(mileTime)
             goalText = formatDuration(goalMile)
             planStart = PlanStore.shared.startDate
+            Reminders.shared.refreshAuthorization()
+        }
+        .onChange(of: reminderSettings) { _, _ in
+            Reminders.shared.reschedule()
         }
         .onChange(of: planStart) { _, newValue in
             let day = PlanCalendar.local.startOfDay(for: newValue)
@@ -187,6 +210,74 @@ struct SettingsView: View {
         } else {
             BracketButton(title: "reset plan progress") {
                 confirmReset = true
+            }
+        }
+    }
+
+    // MARK: Reminders
+
+    private var remindersSection: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            SectionHeader("reminders")
+            CheckRow(title: "reminders", isOn: $remindersEnabled)
+            reminderOptions
+                .disabled(!remindersEnabled)
+                .opacity(remindersEnabled ? 1 : 0.35)
+            ReadoutRow(key: "scheduled", value: String(Reminders.shared.pendingCount))
+            permissionRow
+            BracketButton(title: "send a test") {
+                Reminders.shared.sendTest()
+            }
+            .padding(.top, Theme.s3)
+            note("reminders are local notifications for the next two weeks of the plan. they are rebuilt whenever the plan changes.")
+        }
+    }
+
+    private var reminderOptions: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            CheckRow(title: "morning: today's session", isOn: $reminderMorning)
+            CheckRow(title: "evening nudge if not logged", isOn: $reminderEvening)
+            CheckRow(title: "day before time trials", isOn: $reminderTimeTrial)
+            CheckRow(title: "sunday summary", isOn: $reminderWeekly)
+            timeRow("morning", minutes: $morningMinutes)
+            timeRow("evening", minutes: $eveningMinutes)
+        }
+    }
+
+    private func timeRow(_ key: String, minutes: Binding<Int>) -> some View {
+        let picked = Binding<Date>(get: { ReminderFormat.date(minutes: minutes.wrappedValue) },
+                                   set: { minutes.wrappedValue = ReminderFormat.minutes(of: $0) })
+        return VStack(spacing: 0) {
+            HStack(spacing: Theme.s2) {
+                Text(ReadoutFormat.leader(key, width: 12))
+                    .font(Theme.mono(.body))
+                    .foregroundStyle(Theme.dim)
+                    .lineLimit(1)
+                    .fixedSize()
+                Spacer(minLength: 0)
+                DatePicker(key + " time", selection: picked, displayedComponents: .hourAndMinute)
+                    .labelsHidden()
+                    .datePickerStyle(.compact)
+                    .tint(Theme.fg)
+            }
+            .padding(.vertical, Theme.s1)
+            DashedRule()
+        }
+    }
+
+    @ViewBuilder
+    private var permissionRow: some View {
+        if Reminders.shared.authorizationKnown {
+            switch Reminders.shared.authorization {
+            case .notDetermined:
+                BracketButton(title: "allow notifications") {
+                    Reminders.shared.requestPermission()
+                }
+                .padding(.top, Theme.s3)
+            case .denied:
+                note("notifications are off for milepace in ios settings.")
+            default:
+                EmptyView()
             }
         }
     }

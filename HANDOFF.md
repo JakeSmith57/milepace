@@ -121,3 +121,41 @@ Field checks for v1.3: app opens on today; before Oct 12 it shows the countdown 
 missed card and "do it today" shifts the race date shown in the full plan; start on an easy day sets Run to the easy
 guard; start on a track day opens the right setup sheet; saving marks the day done (x in the strip); a mile time trial
 offers the new paces; Set, plan start date and reset work.
+
+## v1.4 (see `PLAN-v5.md`)
+Written on Linux with no Swift toolchain, so **none of it has been compiled**. Expect a few compile fixes on the first
+CI run. v1.3 behavior is unchanged except `TodayView` now gets its detail lines from `PlanText`.
+
+New files:
+- `Models/PlanText.swift`: `PlanText.lines(for:zones:goalMile:)` (what the today block shows, moved out of `TodayView`
+  unchanged) and `PlanText.detail(...)` (the same lines as one sentence string, used as the morning notification body).
+- `Models/ReminderPlanner.swift`: pure `ReminderSettings`, `ReminderSpec`, `ReminderPlanner.build(...)` and
+  `ReminderFormat` (clock text, minutes and date conversion). No clock or notification center in here; the caller passes
+  `todayOffset`, `nowMinutes` and `startDate`.
+- `Services/Reminders.swift`: `@Observable @MainActor` singleton and `UNUserNotificationCenterDelegate`. `reschedule()`
+  debounces for 1 s, then removes every pending `plan.` id and adds the new window. The delegate methods are
+  `nonisolated`, pull plain values out of the response, then hop to the main actor. `updateRuns(_:)` is how it learns
+  about saved runs (the weekly summary needs them); `TodayView` feeds it.
+- `App/AppDelegate.swift`: `UIApplicationDelegateAdaptor` target; sets the notification delegate at launch.
+- Tests: `ReminderPlannerTests` (inline three-week plan).
+
+Changed: `Settings.swift` (reminder keys, defaults, `AppSettings.reminderSettings`), `PlanStore` (`requestedTab`;
+`apply` and `setStartDate` call `Reminders.shared.reschedule()`), `ContentView` (switches tab on `requestedTab`),
+`MilePaceApp` (adaptor), `TodayView` (reminders card, reschedule triggers, `PlanText`), `SettingsView` (reminders
+section, v1.4), `project.yml` (version 1.4).
+
+Reschedule triggers: app active and today appearing, any `PlanStore.apply` (done, skip, push back, reset, reconcile),
+plan start change, any reminder setting change, mile or goal time change, run or workout count change (saved or deleted).
+No change was needed in `RunView`, `TrackSessionView` or `HistoryView` because `TodayView` is always alive and watches
+the run and workout counts.
+
+Most likely to need a compile fix: `Services/Reminders.swift` (`@Observable` plus `NSObject` plus the two delegate
+signatures, `async` calls on `UNUserNotificationCenter`), `App/AppDelegate.swift` (`@MainActor` class as the adaptor
+target), `Views/TodayView.swift` and `Views/SettingsView.swift` (`switch` over `UNAuthorizationStatus` inside
+`@ViewBuilder`, `Binding<Date>` from minutes).
+
+Field checks for v1.4: today card asks for permission once; after allowing, Set shows a non-zero `scheduled` count;
+`[ send a test ]` delivers after about 5 s with the app in the background; a morning notification's `[ mark done ]`
+updates the strip without opening the app and removes that day's evening note; tapping a notification opens today;
+pushing the plan back changes the scheduled days; turning a kind off removes it; a time trial week gets the
+"tomorrow" note at 6:00 pm.

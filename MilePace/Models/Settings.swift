@@ -18,6 +18,13 @@ enum SettingsKey {
     static let metronomeVolume = "metronomeVolume"
     static let displayMode = "displayMode"
     static let diagnostics = "diagnosticsEnabled"
+    static let remindersEnabled = "remindersEnabled"
+    static let reminderMorning = "reminderMorning"
+    static let reminderEvening = "reminderEvening"
+    static let reminderTimeTrial = "reminderTimeTrial"
+    static let reminderWeekly = "reminderWeekly"
+    static let reminderMorningMinutes = "reminderMorningMinutes"
+    static let reminderEveningMinutes = "reminderEveningMinutes"
 }
 
 /// Light, dark or follow the system.
@@ -102,7 +109,14 @@ enum AppSettings {
             SettingsKey.metronomeBPM: defaultMetronomeBPM,
             SettingsKey.metronomeVolume: defaultMetronomeVolume,
             SettingsKey.displayMode: DisplayMode.system.rawValue,
-            SettingsKey.diagnostics: false
+            SettingsKey.diagnostics: false,
+            SettingsKey.remindersEnabled: true,
+            SettingsKey.reminderMorning: true,
+            SettingsKey.reminderEvening: true,
+            SettingsKey.reminderTimeTrial: true,
+            SettingsKey.reminderWeekly: true,
+            SettingsKey.reminderMorningMinutes: ReminderSettings.defaultMorningMinutes,
+            SettingsKey.reminderEveningMinutes: ReminderSettings.defaultEveningMinutes
         ])
     }
 
@@ -115,6 +129,13 @@ enum AppSettings {
 
     private static func double(_ key: String, fallback: Double) -> Double {
         if let value = UserDefaults.standard.object(forKey: key) as? Double {
+            return value
+        }
+        return fallback
+    }
+
+    private static func int(_ key: String, fallback: Int) -> Int {
+        if let value = UserDefaults.standard.object(forKey: key) as? Int {
             return value
         }
         return fallback
@@ -146,6 +167,18 @@ enum AppSettings {
 
     static var metronomeVolume: Double {
         return min(max(double(SettingsKey.metronomeVolume, fallback: defaultMetronomeVolume), 0.1), 1.0)
+    }
+
+    static var reminderSettings: ReminderSettings {
+        return ReminderSettings(
+            enabled: bool(SettingsKey.remindersEnabled, fallback: true),
+            morning: bool(SettingsKey.reminderMorning, fallback: true),
+            evening: bool(SettingsKey.reminderEvening, fallback: true),
+            timeTrial: bool(SettingsKey.reminderTimeTrial, fallback: true),
+            weekly: bool(SettingsKey.reminderWeekly, fallback: true),
+            morningMinutes: int(SettingsKey.reminderMorningMinutes, fallback: ReminderSettings.defaultMorningMinutes),
+            eveningMinutes: int(SettingsKey.reminderEveningMinutes, fallback: ReminderSettings.defaultEveningMinutes)
+        )
     }
 
     static var zones: PaceZones { PaceZones.forMile(mileTime) }

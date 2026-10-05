@@ -3,6 +3,7 @@ import SwiftData
 
 @main
 struct MilePaceApp: App {
+    @UIApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
     @State private var tracker = LocationTracker()
 
     init() {

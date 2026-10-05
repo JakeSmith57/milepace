@@ -1,11 +1,15 @@
 import SwiftUI
 import SwiftData
+import UIKit
+import UserNotifications
 
 /// First tab: what to do today, what was missed, and the week at a glance.
 @MainActor
 struct TodayView: View {
     @AppStorage(SettingsKey.mileTime) private var mileTime: Double = AppSettings.defaultMileTime
     @AppStorage(SettingsKey.goalMile) private var goalMile: Double = AppSettings.defaultGoalMile
+    @AppStorage(SettingsKey.reminderMorningMinutes) private var morningMinutes: Int = ReminderSettings.defaultMorningMinutes
+    @AppStorage(SettingsKey.reminderEveningMinutes) private var eveningMinutes: Int = ReminderSettings.defaultEveningMinutes
 
     @Query private var runs: [RunRecord]
     @Query private var workouts: [WorkoutRecord]
@@ -46,18 +50,28 @@ struct TodayView: View {
         .onAppear {
             store.refresh()
             reconcile()
+            syncReminders(refreshPermission: true)
         }
         .onChange(of: runs.count) { _, _ in
             reconcile()
+            syncReminders(refreshPermission: false)
         }
         .onChange(of: workouts.count) { _, _ in
             reconcile()
+            syncReminders(refreshPermission: false)
         }
         .onChange(of: scenePhase) { _, phase in
             if phase == .active {
                 store.refresh()
                 reconcile()
+                syncReminders(refreshPermission: true)
             }
+        }
+        .onChange(of: mileTime) { _, _ in
+            Reminders.shared.reschedule()
+        }
+        .onChange(of: goalMile) { _, _ in
+            Reminders.shared.reschedule()
         }
         .onReceive(ticker) { _ in
             store.refresh()
@@ -67,6 +81,15 @@ struct TodayView: View {
     private func reconcile() {
         store.reconcile(runDates: runs.map { $0.date },
                         workoutDates: workouts.map { $0.date })
+    }
+
+    /// Hands the saved runs to the reminders and asks for a fresh schedule.
+    private func syncReminders(refreshPermission: Bool) {
+        Reminders.shared.updateRuns(runs.map { LoggedRun(date: $0.date, meters: $0.distanceMeters) })
+        if refreshPermission {
+            Reminders.shared.refreshAuthorization()
+        }
+        Reminders.shared.reschedule()
     }
 
     // MARK: Status line
@@ -114,6 +137,7 @@ struct TodayView: View {
             todaySection(schedule)
             doctorNote
             weekSection(schedule)
+            remindersCard
             BracketButton(title: "full plan") {
                 showOverview = true
             }
@@ -240,57 +264,12 @@ struct TodayView: View {
         }
     }
 
-    private func roadSpec(_ session: PlanSession) -> RoadWorkoutSpec? {
-        guard let name = session.preset else { return nil }
-        return RoadWorkoutPresets.all.first(where: { $0.name == name })
-    }
-
     private func trackSpec(_ session: PlanSession) -> WorkoutSpec? {
-        guard let id = session.preset else { return nil }
-        let preset = WorkoutPresets.all.first(where: { $0.id == id })
-        return preset?.spec(zones: zones, goalMile: goalMile)
-    }
-
-    private func trackLine(_ spec: WorkoutSpec) -> String {
-        var text = formatSplit(spec.targetRepSeconds) + " per rep"
-        if spec.repDistance != 400 {
-            text += " \u{00B7} " + formatSplit(spec.targetPer400) + " per 400"
-        }
-        return text
-    }
-
-    private func detailText(_ session: PlanSession) -> [String] {
-        var lines: [String] = []
-        switch session.kind {
-        case .easy, .long:
-            var line = ""
-            if let miles = session.miles {
-                line = PlanFormat.miles(miles) + " mi, "
-            }
-            line += "conversational, " + ReadoutFormat.paceRange(zones.easy) + " /mi"
-            lines.append(line)
-        case .road:
-            if let spec = roadSpec(session) {
-                let range = spec.target.range(zones: zones, goalMile: goalMile)
-                lines.append(spec.target.rawValue + " " + ReadoutFormat.paceRange(range) + " /mi")
-            }
-        case .track:
-            if let spec = trackSpec(session) {
-                lines.append(trackLine(spec))
-            }
-        case .timeTrial, .race:
-            lines.append("goal " + formatPace(secondsPerMile: goalMile))
-        case .other:
-            break
-        }
-        if let note = session.note, !note.isEmpty {
-            lines.append(note)
-        }
-        return lines
+        return PlanText.trackSpec(for: session, zones: zones, goalMile: goalMile)
     }
 
     private func detailLines(_ session: PlanSession) -> some View {
-        let lines = detailText(session)
+        let lines = PlanText.lines(for: session, zones: zones, goalMile: goalMile)
         return VStack(alignment: .leading, spacing: 2) {
             ForEach(Array(lines.enumerated()), id: \.offset) { item in
                 Text(item.element)
@@ -367,6 +346,56 @@ struct TodayView: View {
             heading("plan complete")
             bodyText("the race is behind you.")
         }
+    }
+
+    // MARK: Reminders
+
+    @ViewBuilder
+    private var remindersCard: some View {
+        if Reminders.shared.authorizationKnown {
+            switch Reminders.shared.authorization {
+            case .notDetermined:
+                reminderPrompt
+            case .denied:
+                reminderDenied
+            default:
+                EmptyView()
+            }
+        }
+    }
+
+    private var reminderPrompt: some View {
+        let morning = ReminderFormat.clock(morningMinutes)
+        let evening = ReminderFormat.clock(eveningMinutes)
+        return outlined {
+            Text("reminders")
+                .font(Theme.mono(.body))
+                .foregroundStyle(Theme.fg)
+            Text("a note at \(morning) with today's session, and a nudge at \(evening) if it isn't logged.")
+                .font(Theme.mono(.micro))
+                .foregroundStyle(Theme.dim)
+                .fixedSize(horizontal: false, vertical: true)
+            BracketButton(title: "turn on reminders", style: .plan) {
+                Reminders.shared.requestPermission()
+            }
+        }
+    }
+
+    private var reminderDenied: some View {
+        return outlined {
+            Text("reminders are off in ios settings")
+                .font(Theme.mono(.micro))
+                .foregroundStyle(Theme.fg)
+                .fixedSize(horizontal: false, vertical: true)
+            BracketButton(title: "open settings") {
+                openSystemSettings()
+            }
+        }
+    }
+
+    private func openSystemSettings() {
+        guard let url = URL(string: UIApplication.openSettingsURLString) else { return }
+        UIApplication.shared.open(url)
     }
 
     // MARK: Week strip

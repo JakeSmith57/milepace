@@ -23,6 +23,8 @@ final class PlanStore {
     var activeSessionIndex: Int? = nil
     /// Set by "start"; the run or track screen applies it and clears it.
     var pendingRoute: PlanRoute? = nil
+    /// Set when a tapped reminder wants a tab; `ContentView` switches to it and clears it.
+    var requestedTab: AppTab? = nil
 
     private init() {
         let loaded = PlanLoader.load(bundle: Bundle.main)
@@ -67,6 +69,7 @@ final class PlanStore {
         startDate = day
         UserDefaults.standard.set(PlanCalendar.ymd(day), forKey: PlanStore.startDateKey)
         refresh()
+        Reminders.shared.reschedule()
     }
 
     // MARK: Progress
@@ -81,6 +84,7 @@ final class PlanStore {
         guard updated != progress else { return }
         progress = updated
         persist()
+        Reminders.shared.reschedule()
     }
 
     /// "Do it today" for a missed session: it and everything after it move back.
