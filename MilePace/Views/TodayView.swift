@@ -53,12 +53,13 @@ struct TodayView: View {
             reconcile()
             syncReminders(refreshPermission: true)
         }
-        .onChange(of: runs.count) { _, _ in
-            reconcile()
+        .onChange(of: runs.count) { old, new in
+            // Fewer runs than before: one was deleted, and the sessions it had marked done are re-checked.
+            reconcile(removed: new < old)
             syncReminders(refreshPermission: false)
         }
-        .onChange(of: workouts.count) { _, _ in
-            reconcile()
+        .onChange(of: workouts.count) { old, new in
+            reconcile(removed: new < old)
             syncReminders(refreshPermission: false)
         }
         .onChange(of: scenePhase) { _, phase in
@@ -89,8 +90,8 @@ struct TodayView: View {
         return workouts.map { LoggedWorkout(record: $0) }
     }
 
-    private func reconcile() {
-        store.reconcile(runs: loggedRuns, workouts: loggedWorkouts)
+    private func reconcile(removed: Bool = false) {
+        store.reconcile(runs: loggedRuns, workouts: loggedWorkouts, activitiesRemoved: removed)
     }
 
     /// Asks for a fresh reminder schedule; `Reminders` reads the saved runs and workouts itself.

@@ -1,6 +1,67 @@
 import Foundation
 import Observation
 
+/// What the plan store starts from, worked out apart from `UserDefaults` so it can be tested.
+struct PlanLaunch: Equatable {
+    /// Start date used when neither the saved value nor the plan file gives a usable one.
+    static let fallbackStart = "2026-10-12"
+
+    var progress: PlanProgress
+    /// The plan start as "yyyy-MM-dd".
+    var startYMD: String
+    /// True when the saved progress belonged to another plan version. Progress starts over and so does
+    /// the saved start date, which the old plan's schedule may have moved.
+    var versionChanged: Bool
+
+    static func resolve(plan: PlanFile?, savedProgress: Data?, savedStart: String?) -> PlanLaunch {
+        let version = plan?.version ?? 1
+        var changed = false
+        if let data = savedProgress,
+           let decoded = try? JSONDecoder().decode(PlanProgress.self, from: data),
+           decoded.planVersion != version {
+            changed = true
+        }
+        var fileStart: String? = nil
+        if let text = plan?.startDate, PlanCalendar.parse(text) != nil {
+            fileStart = text
+        }
+        var ymd = PlanLaunch.fallbackStart
+        if changed, let text = fileStart {
+            ymd = text
+        } else if let text = savedStart, PlanCalendar.parse(text) != nil {
+            ymd = text
+        } else if let text = fileStart {
+            ymd = text
+        }
+        return PlanLaunch(progress: PlanProgress.restored(from: savedProgress, planVersion: version),
+                          startYMD: ymd,
+                          versionChanged: changed)
+    }
+
+    /// A message when the file's race date is not the plan start plus the race session's day; nil when
+    /// they agree or the file has nothing to compare.
+    static func raceDateMismatch(plan: PlanFile, startYMD: String) -> String? {
+        guard let raceDate = plan.raceDate,
+              let start = PlanCalendar.parse(startYMD),
+              let race = plan.sessions.last(where: { $0.kind == .race }) else {
+            return nil
+        }
+        let offset = (race.week - 1) * 7 + (race.weekday - 1)
+        let expected = PlanCalendar.ymd(PlanCalendar.date(forOffset: offset, start: start))
+        guard expected != raceDate else { return nil }
+        return "plan race date \(raceDate) is not start \(startYMD) plus \(offset) days (\(expected))"
+    }
+}
+
+/// The clock rules of the plan store, apart from the store so they can be tested.
+enum PlanClock {
+    /// The active session after a clock refresh: a new day forgets it, unless a run or track session is
+    /// still going, which must still complete it when it is saved.
+    static func activeIndexAfterRefresh(dayChanged: Bool, active: Int?, sessionInProgress: Bool) -> Int? {
+        return dayChanged && !sessionInProgress ? nil : active
+    }
+}
+
 /// Holds the bundled training plan, the runner's progress through it and the hand-off between the
 /// today screen and the run and track screens.
 @Observable
@@ -12,8 +73,6 @@ final class PlanStore {
     static let startDateKey = "planStartDate"
     /// `UserDefaults` key for the JSON-encoded `PlanProgress`.
     static let progressKey = "planProgress"
-    /// Start date used when neither the saved value nor the plan file gives a usable one.
-    static let fallbackStart = "2026-10-12"
 
     /// nil when `plan.json` is missing or does not parse.
     private(set) var plan: PlanFile?
@@ -24,8 +83,8 @@ final class PlanStore {
     /// Days from the plan start to today (negative before the start).
     private(set) var todayOffset: Int
     /// The plan session the runner started from the today screen, until it is saved or discarded.
-    /// Never saved to disk, so it is clear on every launch; also cleared when the day changes and
-    /// when the screen the route opened is left without starting.
+    /// Never saved to disk, so it is clear on every launch; also cleared when the day changes (not while
+    /// a run or track session is going) and when the screen the route opened is left without starting.
     var activeSessionIndex: Int? = nil
     /// Set by "start"; the run or track screen applies it and clears it.
     var pendingRoute: PlanRoute? = nil
@@ -34,22 +93,27 @@ final class PlanStore {
 
     private init() {
         let loaded = PlanLoader.load(bundle: Bundle.main)
-        var ymd = PlanStore.fallbackStart
-        if let text = UserDefaults.standard.string(forKey: PlanStore.startDateKey),
-           PlanCalendar.parse(text) != nil {
-            ymd = text
-        } else if let text = loaded?.startDate, PlanCalendar.parse(text) != nil {
-            ymd = text
+        let launch = PlanLaunch.resolve(plan: loaded,
+                                        savedProgress: UserDefaults.standard.data(forKey: PlanStore.progressKey),
+                                        savedStart: UserDefaults.standard.string(forKey: PlanStore.startDateKey))
+        if launch.versionChanged {
+            // A new plan version starts over: write the fresh progress and start date now, so the next
+            // launch does not see the old version again and reset a start date the runner has changed since.
+            UserDefaults.standard.set(launch.startYMD, forKey: PlanStore.startDateKey)
+            if let data = try? JSONEncoder().encode(launch.progress) {
+                UserDefaults.standard.set(data, forKey: PlanStore.progressKey)
+            }
+            Diagnostics.shared.log(.state, "plan version changed: progress and start date reset to \(launch.startYMD)")
+        }
+        if let file = loaded, let message = PlanLaunch.raceDateMismatch(plan: file, startYMD: launch.startYMD) {
+            Diagnostics.shared.log(.state, message)
         }
 
-        let restored = PlanProgress.restored(from: UserDefaults.standard.data(forKey: PlanStore.progressKey),
-                                             planVersion: loaded?.version ?? 1)
-        let start = PlanCalendar.parse(ymd) ?? Date()
-
+        let start = PlanCalendar.parse(launch.startYMD) ?? Date()
         plan = loaded
-        startYMD = ymd
-        progress = restored
-        todayOffset = PlanCalendar.dayOffset(of: Date(), start: start)
+        startYMD = launch.startYMD
+        progress = launch.progress
+        todayOffset = PlanCalendar.activityDay(of: Date(), start: start)
     }
 
     /// The plan start in the current calendar and time zone. Computed on every call, never cached.
@@ -66,13 +130,26 @@ final class PlanStore {
 
     // MARK: Clock
 
-    /// Recomputes today's offset. Called from a one-minute timer and when the app becomes active.
-    /// A new day also forgets the active session.
+    /// True while a run is being recorded (set by the run screen).
+    var runInProgress = false
+    /// True while the track session screen is open (set by that screen).
+    var trackInProgress = false
+
+    /// Recomputes today's offset. Called from a one-minute timer and when the app becomes active. Today
+    /// changes at 03:00, the same boundary as `PlanCalendar.activityDay`, so a late run still belongs to
+    /// the day it started on. A new day also forgets the active session, unless a run or track session
+    /// is in progress.
     func refresh() {
-        let offset = PlanCalendar.dayOffset(of: Date(), start: startDate)
-        if offset != todayOffset {
+        let offset = PlanCalendar.activityDay(of: Date(), start: startDate)
+        let changed = offset != todayOffset
+        if changed {
             todayOffset = offset
-            activeSessionIndex = nil
+        }
+        let kept = PlanClock.activeIndexAfterRefresh(dayChanged: changed,
+                                                     active: activeSessionIndex,
+                                                     sessionInProgress: runInProgress || trackInProgress)
+        if kept != activeSessionIndex {
+            activeSessionIndex = kept
         }
     }
 
@@ -124,11 +201,17 @@ final class PlanStore {
     }
 
     /// Marks sessions done when a saved run or workout of the right kind started on their day, and
-    /// skips sessions missed more than two days ago.
-    func reconcile(runs: [LoggedRun], workouts: [LoggedWorkout]) {
+    /// skips sessions missed more than two days ago. After a run or workout was deleted
+    /// (`activitiesRemoved`), the done marks that activities earned are taken back first, so only the
+    /// sessions that saved activities still match stay done; manual done and skip are never cleared.
+    func reconcile(runs: [LoggedRun], workouts: [LoggedWorkout], activitiesRemoved: Bool = false) {
         guard let schedule = schedule else { return }
         let activities = PlanActivities.days(runs: runs, workouts: workouts, start: startDate)
-        apply(schedule.reconciled(activities: activities, today: todayOffset))
+        if activitiesRemoved {
+            apply(schedule.reconciledAfterRemoval(activities: activities, today: todayOffset))
+        } else {
+            apply(schedule.reconciled(activities: activities, today: todayOffset))
+        }
     }
 
     func resetProgress() {
@@ -152,8 +235,9 @@ final class PlanStore {
     }
 
     /// Called when a run or workout is saved: marks the active session done, but only when the saved
-    /// activity is the kind that session asks for (a run for easy, long and road sessions, a track
-    /// workout for track, time trial and race sessions). Anything else leaves it alone. Returns the
+    /// activity is what that session asks for (`PlanSchedule.matches`: an easy or long run needs half its
+    /// miles, a road session its workout, a time trial the mile trial). Anything else leaves it alone.
+    /// The mark counts as earned by the activity, so deleting the activity takes it back. Returns the
     /// index of the session that was marked done, so a later discard can reopen it.
     @discardableResult
     func completeActive(_ kind: ActivityDay.Kind) -> Int? {
@@ -162,10 +246,10 @@ final class PlanStore {
             activeSessionIndex = nil
             return nil
         }
-        guard PlanSchedule.isSameFamily(kind, session: schedule.plan.sessions[index]) else { return nil }
+        guard PlanSchedule.matches(kind, session: schedule.plan.sessions[index]) else { return nil }
         activeSessionIndex = nil
         guard schedule.status(index) == nil else { return nil }
-        apply(schedule.markingDone(index))
+        apply(schedule.markingDone(index, auto: true))
         return index
     }
 

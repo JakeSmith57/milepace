@@ -91,4 +91,32 @@ final class CadenceMathTests: XCTestCase {
         XCTAssertNil(CadenceMath.averageSPM(totalSteps: 100, pausedSteps: 0, movingSeconds: .nan))
         XCTAssertNil(CadenceMath.averageSPM(totalSteps: 100, pausedSteps: 0, movingSeconds: .infinity))
     }
+
+    func testADraftFromAFinishedRunKeepsTheWholeRun() {
+        let start = Date(timeIntervalSinceReferenceDate: 800_000_000)
+        let summary = RunSummary(date: start,
+                                 distanceMeters: 3000,
+                                 durationSeconds: 1200,
+                                 averagePace: 644,
+                                 splits: [640, 648],
+                                 workoutName: "20 min tempo",
+                                 averageCadence: 174,
+                                 route: draft().route)
+        let run = RunDraft(summary: summary)
+        XCTAssertEqual(run.start, start)
+        XCTAssertEqual(run.distanceMeters, 3000)
+        XCTAssertEqual(run.movingSeconds, 1200)
+        XCTAssertEqual(run.splits, [640, 648])
+        XCTAssertEqual(run.route, summary.route)
+        XCTAssertEqual(run.workoutName, "20 min tempo")
+        // 174 steps a minute for 20 minutes.
+        XCTAssertEqual(run.cadenceSteps, 3480)
+        XCTAssertEqual(run.averageCadence, 174, accuracy: 1e-9)
+
+        // No pedometer data, no workout.
+        let bare = RunDraft(summary: RunSummary(date: start, distanceMeters: 100, durationSeconds: 50,
+                                                averagePace: 0, splits: []))
+        XCTAssertEqual(bare.cadenceSteps, 0)
+        XCTAssertEqual(bare.workoutName, "")
+    }
 }

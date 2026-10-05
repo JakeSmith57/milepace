@@ -34,6 +34,8 @@ struct RunView: View {
     /// A run found on disk that was never finished (the app was killed or crashed during it).
     @State private var pendingDraft: RunDraft?
     @State private var confirmDraftDiscard: Bool = false
+    /// The run that just ended could not be saved and waits in the draft card instead.
+    @State private var draftSaveFailed: Bool = false
 
     init(isActive: Bool) {
         self.isActive = isActive
@@ -92,9 +94,14 @@ struct RunView: View {
                            onDiscard: { discard() })
         }
         .onAppear {
+            store.runInProgress = tracker.phase != .idle
             reloadDraft()
             syncWarmup()
             applyPendingRoute()
+        }
+        .onChange(of: tracker.phase) { _, phase in
+            // A day change at 03:00 must not forget the session while a run is going.
+            store.runInProgress = phase != .idle
         }
         .onChange(of: isActive) { _, active in
             syncWarmup()
@@ -402,6 +409,11 @@ struct RunView: View {
                 Text(draft.summaryText())
                     .font(Theme.mono(.body))
                     .fixedSize(horizontal: false, vertical: true)
+                if draftSaveFailed {
+                    Text("the run could not be saved. save it from here.")
+                        .font(Theme.mono(.micro))
+                        .fixedSize(horizontal: false, vertical: true)
+                }
                 HStack(spacing: Theme.s2) {
                     BracketButton(title: "save it", style: .outlineOnInverted, minHeight: 48) {
                         saveDraft(draft)
@@ -683,8 +695,9 @@ struct RunView: View {
     private func startRun() {
         // A run that was never finished is kept before a new one starts, so the new run's draft
         // cannot replace it.
-        if let draft = pendingDraft {
-            saveDraft(draft)
+        // If that save fails the draft stays the only copy and the new run does not start over it.
+        if let draft = pendingDraft, !saveDraft(draft) {
+            return
         }
         let freeRange = guardRange
         let interval = AppSettings.cueInterval
@@ -759,8 +772,17 @@ struct RunView: View {
             try modelContext.save()
             RunDraftStore.clear()
         } catch {
-            // The draft file stays as a second copy until a later save works.
+            // Not saved. The record is taken back out so the draft is the only copy (never both), the
+            // draft is refreshed to the whole run, and the recovery card is the one way to save it.
             Diagnostics.shared.log(.state, "run save failed: \(error.localizedDescription)")
+            modelContext.delete(record)
+            modelContext.rollback()
+            RunDraftStore.save(RunDraft(summary: result))
+            draftSaveFailed = true
+            tracker.reset()
+            reloadDraft()
+            syncWarmup()
+            return
         }
         completedPlanIndex = store.completeActive(.run(miles: result.distanceMeters / metersPerMile,
                                                        workoutName: result.workoutName))
@@ -841,20 +863,30 @@ struct RunView: View {
         }
         if draft == nil {
             confirmDraftDiscard = false
+            draftSaveFailed = false
         }
     }
 
-    /// "[ save it ]": the run on disk becomes a saved run.
-    private func saveDraft(_ draft: RunDraft) {
-        modelContext.insert(draft.makeRecord())
+    /// "[ save it ]": the run on disk becomes a saved run. False when the save failed and the draft stays.
+    @discardableResult
+    private func saveDraft(_ draft: RunDraft) -> Bool {
+        let record = draft.makeRecord()
+        modelContext.insert(record)
         do {
             try modelContext.save()
         } catch {
-            return
+            // Keep the draft as the only copy: a record left in the context would be saved by the next
+            // successful save and the draft would then offer it a second time.
+            modelContext.delete(record)
+            modelContext.rollback()
+            draftSaveFailed = true
+            return false
         }
         RunDraftStore.clear()
         pendingDraft = nil
         confirmDraftDiscard = false
+        draftSaveFailed = false
+        return true
     }
 
     private func discardDraft() {
@@ -862,6 +894,7 @@ struct RunView: View {
             RunDraftStore.clear()
             pendingDraft = nil
             confirmDraftDiscard = false
+            draftSaveFailed = false
         } else {
             confirmDraftDiscard = true
         }

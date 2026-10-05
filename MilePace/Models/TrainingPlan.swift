@@ -141,22 +141,29 @@ struct PlanProgress: Codable, Equatable {
     var dayOverrides: [String: Int] = [:]
     /// `PlanFile.version` this progress belongs to.
     var planVersion: Int = 1
+    /// Session indices (as strings) whose `.done` came from a saved activity (a reconcile match or the
+    /// run that was started for the session), not from the runner's own tap. Those marks are taken back
+    /// when the activity is deleted; a manual done or skip is never listed here.
+    var autoDone: Set<String> = []
 
     enum CodingKeys: String, CodingKey {
         case shifts
         case statuses
         case dayOverrides
         case planVersion
+        case autoDone
     }
 
     init(shifts: [PlanShift] = [],
          statuses: [String: SessionStatus] = [:],
          dayOverrides: [String: Int] = [:],
-         planVersion: Int = 1) {
+         planVersion: Int = 1,
+         autoDone: Set<String> = []) {
         self.shifts = shifts
         self.statuses = statuses
         self.dayOverrides = dayOverrides
         self.planVersion = planVersion
+        self.autoDone = autoDone
     }
 
     init(from decoder: Decoder) throws {
@@ -165,6 +172,7 @@ struct PlanProgress: Codable, Equatable {
         statuses = try container.decodeIfPresent([String: SessionStatus].self, forKey: .statuses) ?? [:]
         dayOverrides = try container.decodeIfPresent([String: Int].self, forKey: .dayOverrides) ?? [:]
         planVersion = try container.decodeIfPresent(Int.self, forKey: .planVersion) ?? 1
+        autoDone = try container.decodeIfPresent(Set<String>.self, forKey: .autoDone) ?? []
     }
 
     static func key(_ index: Int) -> String {
@@ -592,13 +600,21 @@ struct PlanSchedule {
         guard plan.sessions.indices.contains(index) else { return progress }
         var updated = progress
         updated.statuses[PlanProgress.key(index)] = .skipped
+        updated.autoDone.remove(PlanProgress.key(index))
         return updated
     }
 
-    func markingDone(_ index: Int) -> PlanProgress {
+    /// Marks `index` done. `auto` is for a done that comes from a saved activity; the runner's own tap
+    /// (the default) is manual and is never taken back when an activity is deleted.
+    func markingDone(_ index: Int, auto: Bool = false) -> PlanProgress {
         guard plan.sessions.indices.contains(index) else { return progress }
         var updated = progress
         updated.statuses[PlanProgress.key(index)] = .done
+        if auto {
+            updated.autoDone.insert(PlanProgress.key(index))
+        } else {
+            updated.autoDone.remove(PlanProgress.key(index))
+        }
         return updated
     }
 
@@ -607,6 +623,19 @@ struct PlanSchedule {
         guard plan.sessions.indices.contains(index), status(index) == SessionStatus.done else { return progress }
         var updated = progress
         updated.statuses.removeValue(forKey: PlanProgress.key(index))
+        updated.autoDone.remove(PlanProgress.key(index))
+        return updated
+    }
+
+    /// Takes back every done mark that came from a saved activity (`autoDone`), after a run or workout
+    /// was deleted. Manual done and skipped statuses stay. Reconciling again then puts back the marks
+    /// that another activity still earns.
+    func clearingAutoDone() -> PlanProgress {
+        var updated = progress
+        for key in progress.autoDone where updated.statuses[key] == SessionStatus.done {
+            updated.statuses.removeValue(forKey: key)
+        }
+        updated.autoDone = []
         return updated
     }
 
@@ -661,15 +690,6 @@ struct PlanSchedule {
         }
     }
 
-    /// Whether an activity of `kind` belongs on the screen that runs `session`: runs for easy, long,
-    /// road and other sessions, track workouts for track, time trial and race sessions.
-    static func isSameFamily(_ kind: ActivityDay.Kind, session: PlanSession) -> Bool {
-        switch kind {
-        case .run: return session.isRunTabSession
-        case .track: return session.isTrackSession
-        }
-    }
-
     /// Marks done every session with no status that has a matching activity on its scheduled day.
     /// An activity satisfies at most one session.
     func reconciled(activities: [ActivityDay]) -> PlanProgress {
@@ -684,6 +704,7 @@ struct PlanSchedule {
                 guard PlanSchedule.matches(activities[position].kind, session: session) else { continue }
                 used.insert(position)
                 updated.statuses[PlanProgress.key(index)] = .done
+                updated.autoDone.insert(PlanProgress.key(index))
                 break
             }
         }
@@ -696,6 +717,13 @@ struct PlanSchedule {
                                    progress: reconciled(activities: activities),
                                    startWeekday: startWeekday)
         return matched.skippingOld(today: today)
+    }
+
+    /// Like `reconciled(activities:today:)`, but first takes back the done marks that earlier activities
+    /// earned (`clearingAutoDone`), so a deleted run or workout no longer counts. Manual statuses stay.
+    func reconciledAfterRemoval(activities: [ActivityDay], today: Int) -> PlanProgress {
+        let cleared = PlanSchedule(plan: plan, progress: clearingAutoDone(), startWeekday: startWeekday)
+        return cleared.reconciled(activities: activities, today: today)
     }
 }
 
@@ -748,6 +776,13 @@ enum PlanCalendar {
     static func activityDay(of date: Date, start: Date, calendar: Calendar = PlanCalendar.local) -> Int {
         let shifted = calendar.date(byAdding: .hour, value: -activityDayStartHour, to: date) ?? date
         return dayOffset(of: shifted, start: start, calendar: calendar)
+    }
+
+    /// Minutes from the start of plan day `offset` (midnight) to `now`. Today changes at 03:00, so between
+    /// midnight and 03:00 this is over 1440 for the day that is still "today": its reminders are all past.
+    static func minutesIntoDay(now: Date, offset: Int, start: Date, calendar: Calendar = PlanCalendar.local) -> Int {
+        let dayStart = date(forOffset: offset, start: start, calendar: calendar)
+        return max(0, Int(now.timeIntervalSince(dayStart) / 60))
     }
 
     /// Weekday of `date`, Monday = 1 ... Sunday = 7.

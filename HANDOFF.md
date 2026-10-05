@@ -266,3 +266,11 @@ Field checks for v1.6: kill the app mid-run and mid-track-session and relaunch (
 rest (notification); take a call with the metronome on; unplug headphones with the metronome on; idle run screen with
 diagnostics on (start reachable); type `645` in Set; the missed card on a week 13+ day; Log and Today agree on this
 week's miles.
+
+Review fixes (independent review of v1.6): track save can't be persisted again after saving (`saved` flag); plan
+completion from a started session uses `PlanSchedule.matches`; reconcile records `autoDone` so deleting a run reopens
+only sessions it completed automatically (manual done/skip never undone); finished track drafts never expire and are
+saved before a new session starts; plan version change resets progress and the stored start date (`PlanLaunch`), with a
+race-date check logged to Diagnostics; metronome turns off on headphone loss even mid-interruption; a failed run save
+rolls back and leaves only the recovery draft; "today" changes at 03:00 like activity days and doesn't clear the active
+session during a run.

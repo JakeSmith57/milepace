@@ -282,6 +282,11 @@ final class BundledPlanTests: XCTestCase {
                        base.dayOffset(raceIndex))
     }
 
+    func testRaceDateAgreesWithTheStartAndTheRaceSession() throws {
+        let plan = try bundledPlan()
+        XCTAssertNil(PlanLaunch.raceDateMismatch(plan: plan, startYMD: plan.startDate))
+    }
+
     func testScheduleStartsOnPlanStartDate() throws {
         let plan = try bundledPlan()
         XCTAssertNotNil(PlanCalendar.parse(plan.startDate))

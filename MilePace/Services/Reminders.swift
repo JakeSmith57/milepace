@@ -99,8 +99,8 @@ final class Reminders: NSObject, UNUserNotificationCenterDelegate {
         let store = PlanStore.shared
         guard let schedule = store.schedule else { return [] }
         let start = store.startDate
-        let parts = PlanCalendar.local.dateComponents([.hour, .minute], from: Date())
-        let nowMinutes = (parts.hour ?? 0) * 60 + (parts.minute ?? 0)
+        // Minutes into the plan day that is "today" (it changes at 03:00, so this can pass 1440).
+        let nowMinutes = PlanCalendar.minutesIntoDay(now: Date(), offset: store.todayOffset, start: start)
         let milesByDay = PlanActivities.milesByDay(runs: runs, workouts: workouts, start: start)
         return ReminderPlanner.build(schedule: schedule,
                                      todayOffset: store.todayOffset,

@@ -129,6 +129,7 @@ final class TrainingPlanTests: XCTestCase {
         XCTAssertEqual(progress.statuses[PlanProgress.key(0)], .done)
         XCTAssertEqual(progress.dayOverrides, [:])
         XCTAssertEqual(progress.planVersion, 1)
+        XCTAssertEqual(progress.autoDone, [])
         let plan = try schedule(progress)
         XCTAssertEqual((0..<5).map { plan.dayOffset($0) }, [1, 3, 5, 8, 12])
     }
@@ -622,6 +623,20 @@ final class TrainingPlanTests: XCTestCase {
         XCTAssertNil(try schedule(plan.reconciled(activities: [runActivity(1, miles: 4, name: "20 min tempo")])).status(0))
     }
 
+    func testASmallRunDoesNotCompleteALongRun() throws {
+        // The swap plan's long run on day 24 is 6 mi: it needs 3 mi. The mini plan's long run is 3 mi.
+        let long = try swapSchedule().plan.sessions[14]
+        XCTAssertFalse(PlanSchedule.matches(.run(miles: 0.8, workoutName: nil), session: long))
+        XCTAssertFalse(PlanSchedule.matches(.run(miles: 2.9, workoutName: nil), session: long))
+        XCTAssertTrue(PlanSchedule.matches(.run(miles: 3.0, workoutName: nil), session: long))
+        // A track workout is not a long run either, and a guided road workout is not an easy run.
+        XCTAssertFalse(PlanSchedule.matches(.track(presetName: "6 \u{00D7} 400 @ R"), session: long))
+        XCTAssertFalse(PlanSchedule.matches(.run(miles: 6, workoutName: "20 min tempo"), session: long))
+        let easy = try swapSchedule().plan.sessions[1]
+        XCTAssertFalse(PlanSchedule.matches(.run(miles: 1.4, workoutName: nil), session: easy))
+        XCTAssertTrue(PlanSchedule.matches(.run(miles: 1.5, workoutName: nil), session: easy))
+    }
+
     func testRoadSessionsNeedTheirWorkoutName() throws {
         let road = PlanSession(week: 1, weekday: 2, phase: 1, kind: .road, title: "t",
                                miles: nil, preset: "3 \u{00D7} 5 min threshold", note: nil)
@@ -646,6 +661,87 @@ final class TrainingPlanTests: XCTestCase {
         XCTAssertFalse(PlanSchedule.matches(.track(presetName: "Custom workout"), session: trial))
         XCTAssertTrue(PlanSchedule.matches(.track(presetName: "Mile time trial"), session: trial))
         XCTAssertFalse(PlanSchedule.matches(.run(miles: 1, workoutName: nil), session: trial))
+    }
+
+    // MARK: Done marks earned by activities
+
+    func testReconcileRecordsWhichDoneMarksCameFromActivities() throws {
+        // Session 1 was marked done by hand; sessions 0 and 2 are earned by runs.
+        let plan = try schedule(try schedule().markingDone(1))
+        let result = plan.reconciled(activities: [runActivity(1, miles: 2), runActivity(5, miles: 3)])
+        let reconciled = try schedule(result)
+        XCTAssertEqual((0..<3).map { reconciled.status($0) }, [.done, .done, .done])
+        XCTAssertEqual(result.autoDone, [PlanProgress.key(0), PlanProgress.key(2)])
+    }
+
+    func testDoneMarksAreManualUnlessAnActivityEarnedThem() throws {
+        let plan = try schedule()
+        let auto = plan.markingDone(0, auto: true)
+        XCTAssertEqual(auto.statuses, [PlanProgress.key(0): .done])
+        XCTAssertEqual(auto.autoDone, [PlanProgress.key(0)])
+        // Tapping done by hand on it makes it the runner's own mark.
+        let manual = try schedule(auto).markingDone(0)
+        XCTAssertEqual(manual.autoDone, [])
+        XCTAssertEqual(manual.statuses, [PlanProgress.key(0): .done])
+        // A plain done is manual from the start; skipping or reopening drops the automatic mark.
+        XCTAssertEqual(plan.markingDone(1).autoDone, [])
+        XCTAssertEqual(try schedule(auto).skipping(0).autoDone, [])
+        XCTAssertEqual(try schedule(auto).reopening(0).autoDone, [])
+        XCTAssertEqual(try schedule(auto).reopening(0).statuses, [:])
+    }
+
+    func testDeletingARunTakesBackOnlyTheMarksItEarned() throws {
+        let plan = try schedule(try schedule().markingDone(1))
+        let earned = try schedule(plan.reconciled(activities: [runActivity(1, miles: 2), runActivity(5, miles: 3)]))
+        // The 3 mi run on day 5 is deleted and the 2 mi run stays: session 2 is open again, session 0 is
+        // earned again by the run that is left, and the manual done on session 1 is untouched.
+        let after = earned.reconciledAfterRemoval(activities: [runActivity(1, miles: 2)], today: 5)
+        let result = try schedule(after)
+        XCTAssertEqual(result.status(0), .done)
+        XCTAssertEqual(result.status(1), .done)
+        XCTAssertNil(result.status(2))
+        XCTAssertEqual(after.autoDone, [PlanProgress.key(0)])
+    }
+
+    func testDeletingEveryRunLeavesManualMarksAndReopensTheRest() throws {
+        let plan = try schedule(try schedule().markingDone(1))
+        let earned = try schedule(plan.reconciled(activities: [runActivity(1, miles: 2)]))
+        XCTAssertEqual(earned.status(0), .done)
+        // Day 3: the easy run of day 1 is still within its two days on offer, so it is open again.
+        let after = try schedule(earned.reconciledAfterRemoval(activities: [], today: 3))
+        XCTAssertNil(after.status(0))
+        XCTAssertEqual(after.status(1), .done)
+        XCTAssertEqual(after.progress.autoDone, [])
+        XCTAssertEqual(after.firstMissed(today: 3), 0)
+        // Later than that it is skipped like any session missed more than two days ago.
+        let late = try schedule(earned.reconciledAfterRemoval(activities: [], today: 6))
+        XCTAssertEqual(late.status(0), .skipped)
+        XCTAssertEqual(late.status(1), .done)
+    }
+
+    func testClearingAutoDoneLeavesSkipsAndOverridesAlone() throws {
+        var progress = PlanProgress()
+        progress.statuses[PlanProgress.key(0)] = .done
+        progress.statuses[PlanProgress.key(2)] = .skipped
+        progress.dayOverrides[PlanProgress.key(3)] = 9
+        // Key 2 is listed but is not done any more (it was skipped later): it stays skipped.
+        progress.autoDone = [PlanProgress.key(0), PlanProgress.key(2)]
+        let cleared = try schedule(progress).clearingAutoDone()
+        XCTAssertEqual(cleared.statuses, [PlanProgress.key(2): .skipped])
+        XCTAssertEqual(cleared.dayOverrides, [PlanProgress.key(3): 9])
+        XCTAssertEqual(cleared.autoDone, [])
+    }
+
+    func testAutoDoneRoundTripsAndOldProgressDecodesWithoutIt() throws {
+        var progress = PlanProgress()
+        progress.statuses[PlanProgress.key(2)] = .done
+        progress.autoDone = [PlanProgress.key(2)]
+        let data = try JSONEncoder().encode(progress)
+        XCTAssertEqual(try JSONDecoder().decode(PlanProgress.self, from: data), progress)
+        let old = try JSONDecoder().decode(PlanProgress.self,
+                                           from: Data("{ \"statuses\": { \"2\": \"done\" }, \"planVersion\": 2 }".utf8))
+        XCTAssertEqual(old.autoDone, [])
+        XCTAssertEqual(old.statuses, [PlanProgress.key(2): .done])
     }
 
     func testOneActivityCannotSatisfyTwoSessions() throws {
@@ -935,6 +1031,30 @@ final class TrainingPlanTests: XCTestCase {
             let day = PlanCalendar.date(forOffset: offset, start: start, calendar: calendar)
             XCTAssertEqual(PlanCalendar.dayOffset(of: day, start: start, calendar: calendar), offset)
         }
+    }
+
+    func testMinutesIntoTheDayRunPastMidnightUntilTheNextActivityDay() throws {
+        let calendar = newYork()
+        let start = try XCTUnwrap(PlanCalendar.parse("2026-10-12", calendar: calendar))
+        func date(_ day: Int, _ hour: Int, _ minute: Int) throws -> Date {
+            var parts = DateComponents()
+            parts.year = 2026
+            parts.month = 10
+            parts.day = day
+            parts.hour = hour
+            parts.minute = minute
+            return try XCTUnwrap(calendar.date(from: parts))
+        }
+        // 00:30 on the 13th still belongs to the 12th (day 0): 24 h 30 min into it.
+        let late = try date(13, 0, 30)
+        XCTAssertEqual(PlanCalendar.activityDay(of: late, start: start, calendar: calendar), 0)
+        XCTAssertEqual(PlanCalendar.minutesIntoDay(now: late, offset: 0, start: start, calendar: calendar), 1470)
+        // 03:00 starts day 1, which is 3 h into itself.
+        let morning = try date(13, 3, 0)
+        XCTAssertEqual(PlanCalendar.activityDay(of: morning, start: start, calendar: calendar), 1)
+        XCTAssertEqual(PlanCalendar.minutesIntoDay(now: morning, offset: 1, start: start, calendar: calendar), 180)
+        // Never negative.
+        XCTAssertEqual(PlanCalendar.minutesIntoDay(now: late, offset: 2, start: start, calendar: calendar), 0)
     }
 
     func testParseAndFormatDates() throws {

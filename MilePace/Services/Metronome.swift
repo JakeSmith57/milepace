@@ -188,10 +188,12 @@ final class Metronome {
     }
 
     /// Headphones unplugged or the Bluetooth output gone: the click must not jump to the speaker, so it
-    /// stops and the run screen's metronome switch goes off.
+    /// stops and the run screen's metronome switch goes off. This holds when the click is not playing
+    /// too (an interruption had stopped it): it must not start again on the speaker when the
+    /// interruption ends, and the switch must not stay on for a click that is gone.
     private func handleRouteChange(rawReason: UInt?) {
         guard AudioSessionEvents.isOutputLost(reasonRaw: rawReason) else { return }
-        guard isRunning else { return }
+        wasRunningBeforeInterruption = false
         stop()
         UserDefaults.standard.set(false, forKey: SettingsKey.metronomeEnabled)
         Diagnostics.shared.log(.audio, "metronome stopped, output lost")

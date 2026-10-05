@@ -335,6 +335,79 @@ final class TrackWorkoutTests: XCTestCase {
         XCTAssertNil(TrackSessionStore.load(now: saved, defaults: defaults))
     }
 
+    private func finishedOneByFourHundred() -> TrackWorkout {
+        var workout = TrackWorkout(spec: WorkoutSpec(name: "1 x 400", reps: 1, repDistance: 400,
+                                                     targetRepSeconds: 80, restSeconds: 0))
+        workout.start(now: at(0))
+        workout.lapTap(now: at(80))
+        return workout
+    }
+
+    func testAFinishedDraftNeverExpiresButAnUnfinishedOneDoes() throws {
+        let suite = "milepace.tests.trackdraft.finished"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defaults.removePersistentDomain(forName: suite)
+        defer { defaults.removePersistentDomain(forName: suite) }
+
+        let finished = finishedOneByFourHundred()
+        XCTAssertEqual(finished.state, .finished)
+        let saved = Date(timeIntervalSinceReferenceDate: 100_000)
+        let draft = TrackSessionDraft(workout: finished, sessionStart: saved.addingTimeInterval(-300), savedAt: saved)
+        XCTAssertTrue(draft.isFinished)
+        XCTAssertFalse(draft.isFresh(now: saved.addingTimeInterval(4 * 3600)))
+        XCTAssertTrue(draft.isKept(now: saved.addingTimeInterval(4 * 3600)))
+
+        // Three days later it is still offered, and still on disk.
+        TrackSessionStore.save(draft, defaults: defaults)
+        XCTAssertEqual(TrackSessionStore.load(now: saved.addingTimeInterval(3 * 86_400), defaults: defaults), draft)
+        XCTAssertNotNil(defaults.data(forKey: TrackSessionStore.key))
+
+        // An unfinished one keeps the three hour rule.
+        var running = TrackWorkout(spec: twoByEightHundred())
+        running.start(now: at(0))
+        let open = TrackSessionDraft(workout: running, sessionStart: saved, savedAt: saved)
+        XCTAssertTrue(open.isKept(now: saved.addingTimeInterval(3 * 3600)))
+        XCTAssertFalse(open.isKept(now: saved.addingTimeInterval(3 * 3600 + 1)))
+        TrackSessionStore.save(open, defaults: defaults)
+        XCTAssertNil(TrackSessionStore.load(now: saved.addingTimeInterval(4 * 3600), defaults: defaults))
+        XCTAssertNil(defaults.data(forKey: TrackSessionStore.key))
+    }
+
+    func testAFinishedDraftBecomesAWorkoutRecord() {
+        let draft = TrackSessionDraft(workout: finishedOneByFourHundred(),
+                                      sessionStart: Date(timeIntervalSinceReferenceDate: 99_700),
+                                      savedAt: Date(timeIntervalSinceReferenceDate: 100_000))
+        XCTAssertTrue(draft.hasResults)
+        let record = draft.makeRecord()
+        XCTAssertEqual(record.date, Date(timeIntervalSinceReferenceDate: 99_700))
+        XCTAssertEqual(record.name, "1 x 400")
+        XCTAssertEqual(record.repTimes, [80])
+        XCTAssertEqual(record.spec?.name, "1 x 400")
+        XCTAssertEqual(record.lapSplits, [[80]])
+
+        // Ended before the first rep was timed: nothing to save, and an unfinished draft has no results.
+        var empty = TrackWorkout(spec: twoByEightHundred())
+        empty.start(now: at(0))
+        let unfinished = TrackSessionDraft(workout: empty, sessionStart: at(0), savedAt: at(1))
+        XCTAssertFalse(unfinished.hasResults)
+        empty.finishEarly()
+        let ended = TrackSessionDraft(workout: empty, sessionStart: at(0), savedAt: at(1))
+        XCTAssertTrue(ended.isFinished)
+        XCTAssertFalse(ended.hasResults)
+    }
+
+    func testTheSessionScreenWritesTheDraftOnlyWhileTheWorkoutIsOpen() {
+        let running = TrackState.running(rep: 1, lap: 1)
+        XCTAssertTrue(TrackSessionStore.shouldPersist(started: true, state: running, saved: false, saving: false))
+        XCTAssertTrue(TrackSessionStore.shouldPersist(started: true, state: .finished, saved: false, saving: false))
+        // Before the first rep, nothing is written.
+        XCTAssertFalse(TrackSessionStore.shouldPersist(started: false, state: .ready, saved: false, saving: false))
+        XCTAssertFalse(TrackSessionStore.shouldPersist(started: true, state: .ready, saved: false, saving: false))
+        // Once saved or being saved, the finished draft must not come back (scene phase change under the pace offer).
+        XCTAssertFalse(TrackSessionStore.shouldPersist(started: true, state: .finished, saved: true, saving: false))
+        XCTAssertFalse(TrackSessionStore.shouldPersist(started: true, state: .finished, saved: false, saving: true))
+    }
+
     // MARK: Goal-based presets and setup
 
     func testGoalPresetsFollowTheGoalMile() {

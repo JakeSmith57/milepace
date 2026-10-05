@@ -22,7 +22,12 @@ struct TrackSessionView: View {
     @State private var confirmDiscard: Bool = false
     /// Set by the first save tap so a second one cannot insert the workout twice.
     @State private var saving: Bool = false
+    /// Set once the workout is saved or discarded. The finished draft was cleared then; nothing may write it
+    /// again (going to the background while the pace offer is up would, and the draft would offer a second copy).
+    @State private var saved: Bool = false
     @State private var saveFailed: Bool = false
+    /// Set when an unsaved finished workout from earlier could not be saved before this one started.
+    @State private var startBlocked: Bool = false
 
     private let ticker = Timer.publish(every: 0.1, on: .main, in: .common).autoconnect()
 
@@ -47,9 +52,11 @@ struct TrackSessionView: View {
         }
         .onAppear {
             UIApplication.shared.isIdleTimerDisabled = true
+            PlanStore.shared.trackInProgress = true
         }
         .onDisappear {
             UIApplication.shared.isIdleTimerDisabled = false
+            PlanStore.shared.trackInProgress = false
         }
         .onChange(of: scenePhase) { _, phase in
             handleScenePhase(phase)
@@ -103,7 +110,7 @@ struct TrackSessionView: View {
         switch workout.state {
         case .ready:
             return Banner(title: "ready",
-                          subtitle: "\(total) reps",
+                          subtitle: startBlocked ? "could not save your last workout. tap start to try again." : "\(total) reps",
                           trailing: formatSplit(spec.targetRepSeconds),
                           trailingSub: "target per rep")
         case .running(let rep, let lap):
@@ -297,6 +304,11 @@ struct TrackSessionView: View {
     // MARK: Actions
 
     private func startWorkout() {
+        guard saveFinishedDraftBeforeStarting() else {
+            startBlocked = true
+            return
+        }
+        startBlocked = false
         workout.start(now: Date())
         sessionStart = Date()
         Coach.shared.lapHaptic()
@@ -349,8 +361,36 @@ struct TrackSessionView: View {
 
     /// Writes the session so a killed app can pick it up again. Nothing is written before the first rep.
     private func persist() {
-        guard let began = sessionStart, workout.state != .ready else { return }
+        guard TrackSessionStore.shouldPersist(started: sessionStart != nil,
+                                              state: workout.state,
+                                              saved: saved,
+                                              saving: saving),
+              let began = sessionStart else {
+            return
+        }
         TrackSessionStore.save(TrackSessionDraft(workout: workout, sessionStart: began, savedAt: Date()))
+    }
+
+    /// A finished workout left in the draft (never saved, never discarded) is saved as a workout record
+    /// before a new session starts, so the new session's draft cannot replace it. Returns false when
+    /// that save failed and the draft is still the only copy.
+    private func saveFinishedDraftBeforeStarting() -> Bool {
+        guard let old = TrackSessionStore.load(), old.isFinished else { return true }
+        guard old.hasResults else {
+            TrackSessionStore.clear()
+            return true
+        }
+        let record = old.makeRecord()
+        modelContext.insert(record)
+        do {
+            try modelContext.save()
+        } catch {
+            modelContext.delete(record)
+            modelContext.rollback()
+            return false
+        }
+        TrackSessionStore.clear()
+        return true
     }
 
     /// Going to the background saves the session and, during a rest, schedules a notification for the
@@ -443,6 +483,7 @@ struct TrackSessionView: View {
     }
 
     private func discardWorkout() {
+        saved = true
         TrackSessionStore.clear()
         RestAlert.cancel()
         Coach.shared.stopSpeaking()
@@ -463,11 +504,13 @@ struct TrackSessionView: View {
             try modelContext.save()
         } catch {
             modelContext.delete(record)
+            modelContext.rollback()
             saving = false
             saveFailed = true
             return
         }
         saveFailed = false
+        saved = true
         TrackSessionStore.clear()
         RestAlert.cancel()
         Coach.shared.stopSpeaking()

@@ -58,6 +58,24 @@ struct RunDraft: Codable, Equatable {
     }
 }
 
+extension RunDraft {
+    /// A finished run as a draft, for a run whose save failed: the recovery card then offers the whole run,
+    /// not the last 30 second checkpoint. The pedometer gave an average, so the step count is rebuilt from it.
+    init(summary: RunSummary) {
+        var steps = 0
+        if let cadence = summary.averageCadence, cadence > 0 {
+            steps = Int((cadence * summary.durationSeconds / 60).rounded())
+        }
+        self.init(start: summary.date,
+                  distanceMeters: summary.distanceMeters,
+                  movingSeconds: summary.durationSeconds,
+                  splits: summary.splits,
+                  route: summary.route,
+                  cadenceSteps: steps,
+                  workoutName: summary.workoutName ?? "")
+    }
+}
+
 /// Where the draft lives: `Application Support/run-draft.json`, written atomically. All access goes
 /// through one serial queue, so a clear can never be overtaken by an older write.
 enum RunDraftStore {
