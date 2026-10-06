@@ -127,7 +127,7 @@ final class RoadWorkoutTests: XCTestCase {
     func testNoRecoveryAfterLastRep() {
         var session = RoadWorkoutSession(spec: timedSpec(reps: 1, seconds: 60, recovery: 30))
         session.startReps(elapsed: 0, distance: 0)
-        XCTAssertEqual(labels(session.update(elapsed: 60, distance: 240)), ["half1", "end1", "complete"])
+        XCTAssertEqual(labels(session.update(elapsed: 60, distance: 240)), ["end1", "complete"])
         XCTAssertEqual(session.phase, .cooldown)
         XCTAssertTrue(session.update(elapsed: 100, distance: 400).isEmpty)
         XCTAssertTrue(session.update(elapsed: 200, distance: 800).isEmpty)
