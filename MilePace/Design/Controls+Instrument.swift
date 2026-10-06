@@ -109,6 +109,36 @@ struct BracketButton: View {
     }
 }
 
+/// A bracket button that fires only after a short hold, for mid-run actions a stray tap must not trigger
+/// (skipping a rep or a rest). The label dims while it is pressed.
+struct HoldBracketButton: View {
+    let title: String
+    var style: BracketStyle = .plain
+    var minHeight: CGFloat = 56
+    var duration: Double = 0.6
+    let action: () -> Void
+
+    @State private var pressing = false
+
+    var body: some View {
+        BracketLabel(title: title, style: style, minHeight: minHeight)
+            .opacity(pressing ? 0.5 : 1)
+            .contentShape(Rectangle())
+            .onLongPressGesture(minimumDuration: duration,
+                                maximumDistance: 40,
+                                perform: {
+                                    pressing = false
+                                    action()
+                                },
+                                onPressingChanged: { isPressing in
+                                    pressing = isPressing
+                                })
+            .accessibilityLabel(title)
+            .accessibilityAddTraits(.isButton)
+            .accessibilityAction { action() }
+    }
+}
+
 /// Bordered row that only fires after being held, so pocket taps cannot end a run. A ten-cell gauge
 /// fills from "." to "#" while pressed.
 struct HoldBar: View {

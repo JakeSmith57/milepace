@@ -187,6 +187,8 @@ final class Coach: NSObject, AVSpeechSynthesizerDelegate {
             }
         case .halfway:
             speak("Halfway.")
+        case .timeLeft(_, let seconds):
+            speak(seconds == 60 ? "1 minute left." : "\(seconds) seconds left.")
         case .repEnded(let number, let avgPace):
             restEndHaptic()
             var text = "Rep \(number) done."

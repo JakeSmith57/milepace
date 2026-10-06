@@ -126,6 +126,8 @@ struct RoadWorkoutSession {
     enum Event: Equatable {
         case repStarted(Int, total: Int)
         case halfway(Int)
+        /// Time left in a timed rep: 60 or 30 seconds.
+        case timeLeft(Int, seconds: Int)
         case repEnded(Int, avgPace: Double?)
         case recoveryCountdown(Int)
         case workoutComplete
@@ -139,6 +141,8 @@ struct RoadWorkoutSession {
     private var lastElapsed: Double = 0
     private var lastDistance: Double = 0
     private var halfwayFired = false
+    private var minuteLeftFired = false
+    private var thirtyLeftFired = false
     private var tenFired = false
     private var threeFired = false
 
@@ -199,10 +203,17 @@ struct RoadWorkoutSession {
         return [.repStarted(1, total: spec.reps)]
     }
 
+    /// A skip this soon after a rep or recovery began is ignored: the tap was almost certainly meant for
+    /// the previous phase's button (the label changes under the finger) or was a stray touch.
+    static let skipGraceSeconds: Double = 3
+
     /// Ends the current rep or recovery right now.
     @discardableResult
     mutating func skip(elapsed: Double, distance: Double) -> [Event] {
         var events: [Event] = []
+        if isInRepOrRecovery && elapsed - phaseStartElapsed < RoadWorkoutSession.skipGraceSeconds {
+            return events
+        }
         switch phase {
         case .warmup, .cooldown:
             break
@@ -258,6 +269,8 @@ struct RoadWorkoutSession {
         phaseStartElapsed = elapsed
         phaseStartDistance = distance
         halfwayFired = false
+        minuteLeftFired = false
+        thirtyLeftFired = false
     }
 
     private mutating func beginRecovery(_ number: Int, elapsed: Double, distance: Double) {
@@ -310,9 +323,29 @@ struct RoadWorkoutSession {
         case .time(let seconds):
             let length = Double(seconds)
             let spent = now - phaseStartElapsed
+            let left = length - spent
+            // "Halfway" is left out when it would land within 10 s of a time-left cue (a 2-minute rep's
+            // halfway is its 1-minute mark).
+            let halfwayClashes = (length > 60 && abs(length / 2 - 60) < 10)
+                || (length > 30 && abs(length / 2 - 30) < 10)
             if !halfwayFired && spent >= length / 2 {
                 halfwayFired = true
-                events.append(.halfway(number))
+                if !halfwayClashes {
+                    events.append(.halfway(number))
+                }
+            }
+            // Each cue fires once, and only while it is still true (a late update skips a stale one).
+            if length > 60 && !minuteLeftFired && left <= 60 {
+                minuteLeftFired = true
+                if left > 30 {
+                    events.append(.timeLeft(number, seconds: 60))
+                }
+            }
+            if length > 30 && !thirtyLeftFired && left <= 30 {
+                thirtyLeftFired = true
+                if left > 5 {
+                    events.append(.timeLeft(number, seconds: 30))
+                }
             }
             if spent >= length {
                 let endElapsed = phaseStartElapsed + length

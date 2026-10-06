@@ -6,6 +6,7 @@ final class RoadWorkoutTests: XCTestCase {
         switch event {
         case .repStarted(let number, let total): return "start\(number)/\(total)"
         case .halfway(let number): return "half\(number)"
+        case .timeLeft(let number, let seconds): return "left\(seconds)-\(number)"
         case .repEnded(let number, _): return "end\(number)"
         case .recoveryCountdown(let seconds): return "cd\(seconds)"
         case .workoutComplete: return "complete"
@@ -28,14 +29,14 @@ final class RoadWorkoutTests: XCTestCase {
         // Nothing happens during warm-up.
         XCTAssertTrue(session.update(elapsed: 5, distance: 20).isEmpty)
 
-        // Reps start at 5 s: halfway at 35, end at 65, recovery to 95, rep 2 ends at 155.
+        // Reps start at 5 s: 30 s left at 35 (replacing halfway), end at 65, recovery to 95, rep 2 ends at 155.
         var events = session.startReps(elapsed: 5, distance: 20)
         XCTAssertEqual(session.phase, .rep(1))
         for second in 6...155 {
             events += session.update(elapsed: Double(second), distance: 4.0 * Double(second))
         }
-        XCTAssertEqual(labels(events), ["start1/2", "half1", "end1", "cd10", "cd3",
-                                        "start2/2", "half2", "end2", "complete"])
+        XCTAssertEqual(labels(events), ["start1/2", "left30-1", "end1", "cd10", "cd3",
+                                        "start2/2", "left30-2", "end2", "complete"])
         XCTAssertEqual(session.phase, .cooldown)
     }
 
@@ -105,7 +106,7 @@ final class RoadWorkoutTests: XCTestCase {
         XCTAssertEqual(session.phase, .warmup)
         session.startReps(elapsed: 5, distance: 10)
         let done = session.update(elapsed: 70, distance: 300)
-        XCTAssertEqual(labels(done), ["half1", "end1", "complete"])
+        XCTAssertEqual(labels(done), ["end1", "complete"])
         XCTAssertTrue(session.skip(elapsed: 71, distance: 304).isEmpty)
         XCTAssertEqual(session.phase, .cooldown)
     }
@@ -113,7 +114,7 @@ final class RoadWorkoutTests: XCTestCase {
     func testUpdateIsIdempotent() {
         var session = RoadWorkoutSession(spec: timedSpec())
         session.startReps(elapsed: 0, distance: 0)
-        XCTAssertEqual(labels(session.update(elapsed: 30, distance: 120)), ["half1"])
+        XCTAssertEqual(labels(session.update(elapsed: 30, distance: 120)), ["left30-1"])
         XCTAssertTrue(session.update(elapsed: 30, distance: 120).isEmpty)
 
         XCTAssertEqual(labels(session.update(elapsed: 60, distance: 240)), ["end1"])
@@ -216,5 +217,44 @@ final class RoadWorkoutTests: XCTestCase {
         let long = RoadWorkoutSpec(name: "l", reps: 1, length: .distance(meters: 2414.016),
                                    target: .goal, recoverySeconds: 0)
         XCTAssertEqual(long.spokenLength, "1.5 miles")
+    }
+
+    func testTwoMinuteRepCallsOneMinuteAndThirtySecondsLeft() {
+        var session = RoadWorkoutSession(spec: timedSpec(reps: 2, seconds: 120, recovery: 60))
+        var events = session.startReps(elapsed: 0, distance: 0)
+        for second in 1...300 {
+            events += session.update(elapsed: Double(second), distance: 4.0 * Double(second))
+        }
+        XCTAssertEqual(labels(events), ["start1/2", "left60-1", "left30-1", "end1", "cd10", "cd3",
+                                        "start2/2", "left60-2", "left30-2", "end2", "complete"])
+        XCTAssertEqual(session.phase, .cooldown)
+    }
+
+    func testLongRepKeepsHalfwayAndTimeLeftCues() {
+        var session = RoadWorkoutSession(spec: timedSpec(reps: 1, seconds: 300, recovery: 0))
+        var events = session.startReps(elapsed: 0, distance: 0)
+        for second in 1...300 {
+            events += session.update(elapsed: Double(second), distance: 4.0 * Double(second))
+        }
+        XCTAssertEqual(labels(events), ["start1/1", "half1", "left60-1", "left30-1", "end1", "complete"])
+    }
+
+    func testLateUpdateSkipsStaleTimeLeftCue() {
+        var session = RoadWorkoutSession(spec: timedSpec(reps: 1, seconds: 120, recovery: 0))
+        session.startReps(elapsed: 0, distance: 0)
+        // Nothing reached the app between 50 s and 100 s: only the cue that is still true is said.
+        XCTAssertTrue(session.update(elapsed: 50, distance: 200).isEmpty)
+        XCTAssertEqual(labels(session.update(elapsed: 100, distance: 400)), ["left30-1"])
+    }
+
+    func testSkipRightAfterAPhaseChangeIsIgnored() {
+        var session = RoadWorkoutSession(spec: timedSpec(reps: 2, seconds: 120, recovery: 60))
+        session.startReps(elapsed: 0, distance: 0)
+        _ = session.update(elapsed: 180, distance: 720)
+        XCTAssertEqual(session.phase, .rep(2))
+        // Rep 2 began at 180 s; a tap 1 s later was meant for "skip rest" and must not end rep 2.
+        XCTAssertTrue(session.skip(elapsed: 181, distance: 724).isEmpty)
+        XCTAssertEqual(session.phase, .rep(2))
+        XCTAssertEqual(labels(session.skip(elapsed: 200, distance: 800)), ["end2", "complete"])
     }
 }

@@ -728,11 +728,11 @@ struct RunView: View {
                     tracker.startReps()
                 }
             case .rep:
-                BracketButton(title: "skip rep") {
+                HoldBracketButton(title: "hold: skip rep") {
                     tracker.skipPhase()
                 }
             case .recovery:
-                BracketButton(title: "skip rest") {
+                HoldBracketButton(title: "hold: skip rest") {
                     tracker.skipPhase()
                 }
             case .cooldown:
