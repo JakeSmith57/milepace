@@ -13,6 +13,8 @@ struct SettingsView: View {
     @AppStorage(SettingsKey.lapFeedback) private var lapFeedback: Bool = false
     @AppStorage(SettingsKey.haptics) private var haptics: Bool = true
     @AppStorage(SettingsKey.cueInterval) private var cueInterval: CueInterval = .half
+    @AppStorage(SettingsKey.voiceEnabled) private var voiceEnabled: Bool = true
+    @AppStorage(SettingsKey.metronomeEnabled) private var metronomeEnabled: Bool = false
     @AppStorage(SettingsKey.metronomeBPM) private var metronomeBPM: Int = AppSettings.defaultMetronomeBPM
     @AppStorage(SettingsKey.metronomeVolume) private var metronomeVolume: Double = AppSettings.defaultMetronomeVolume
     @AppStorage(SettingsKey.displayMode) private var displayMode: DisplayMode = .system
@@ -80,7 +82,7 @@ struct SettingsView: View {
         VStack(spacing: 0) {
             StatusLine(left: "milepace",
                        center: "set",
-                       right: "v1.9",
+                       right: "v1.10",
                        accessory: StatusAccessory(title: "today", action: { PlanStore.shared.goHome() }))
             ScrollView {
                 VStack(alignment: .leading, spacing: 0) {
@@ -130,6 +132,12 @@ struct SettingsView: View {
         }
         .onChange(of: metronomeVolume) { _, newValue in
             Metronome.shared.setVolume(Float(newValue))
+        }
+        .onChange(of: voiceEnabled) { _, enabled in
+            // Turning the voice off cuts off what is being said. The click is never touched here.
+            if !enabled {
+                Coach.shared.stopSpeaking()
+            }
         }
     }
 
@@ -397,6 +405,10 @@ struct SettingsView: View {
     private var voiceAndFeedback: some View {
         VStack(alignment: .leading, spacing: 0) {
             SectionHeader("voice and feedback")
+            CheckRow(title: "voice", isOn: $voiceEnabled)
+            if !voiceEnabled {
+                note("voice is off. haptics still work. also mutes the track countdown and lap feedback.")
+            }
             voiceRow
             ChoiceRow(label: "pace cues every", options: cueOptions, selection: $cueInterval)
             CheckRow(title: "announce each mile", isOn: $announceMiles)
@@ -453,6 +465,8 @@ struct SettingsView: View {
     private var metronome: some View {
         VStack(alignment: .leading, spacing: 0) {
             SectionHeader("metronome")
+            CheckRow(title: "click", isOn: $metronomeEnabled)
+            note("the click is separate from the voice. here it sets the default for the next run; during a run, use [ click on ] on the run screen.")
             StepperRow(title: "tempo spm",
                        value: $metronomeBPM,
                        range: ClickTrack.bpmRange,

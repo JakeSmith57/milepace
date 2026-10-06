@@ -30,6 +30,8 @@ enum SettingsKey {
     /// `AVSpeechSynthesisVoice` identifier; empty means the system default en-US voice.
     static let voiceIdentifier = "voiceIdentifier"
     static let voiceRate = "voiceRate"
+    /// Master switch for spoken cues. Haptics and the metronome click are separate.
+    static let voiceEnabled = "voiceEnabled"
     /// "yyyy-MM-dd" the test week started on; empty or missing when it is off. Not a view setting:
     /// `PlanStore` owns it, so starting and ending always clean up properly.
     static let testWeekStart = "testWeekStart"
@@ -153,7 +155,8 @@ enum AppSettings {
             SettingsKey.reminderEveningMinutes: ReminderSettings.defaultEveningMinutes,
             SettingsKey.paceWindow: defaultPaceWindow,
             SettingsKey.voiceIdentifier: "",
-            SettingsKey.voiceRate: defaultVoiceRate
+            SettingsKey.voiceRate: defaultVoiceRate,
+            SettingsKey.voiceEnabled: true
         ])
     }
 
@@ -185,6 +188,9 @@ enum AppSettings {
     static var trackCountdown: Bool { bool(SettingsKey.trackCountdown, fallback: true) }
     static var lapFeedback: Bool { bool(SettingsKey.lapFeedback, fallback: false) }
     static var haptics: Bool { bool(SettingsKey.haptics, fallback: true) }
+    /// False mutes every spoken cue (previews in the voice picker still play).
+    static var voiceEnabled: Bool { bool(SettingsKey.voiceEnabled, fallback: true) }
+    static var metronomeEnabled: Bool { bool(SettingsKey.metronomeEnabled, fallback: false) }
     static var diagnosticsEnabled: Bool { bool(SettingsKey.diagnostics, fallback: false) }
 
     static var cueInterval: CueInterval {

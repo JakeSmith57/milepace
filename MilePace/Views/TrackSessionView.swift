@@ -10,6 +10,7 @@ struct TrackSessionView: View {
     @Environment(\.scenePhase) private var scenePhase
 
     @AppStorage(SettingsKey.mileTime) private var mileTime: Double = AppSettings.defaultMileTime
+    @AppStorage(SettingsKey.voiceEnabled) private var voiceEnabled: Bool = true
 
     @State private var workout: TrackWorkout
     @State private var now: Date = Date()
@@ -107,7 +108,18 @@ struct TrackSessionView: View {
                    right: sessionClock,
                    recording: isRunning,
                    accessory: StatusAccessory(title: "end", action: { confirmEnd = true }),
+                   accessories: [voiceAccessory],
                    tag: isTest ? "test" : "")
+    }
+
+    /// "[ voice on ]" / "[ voice off ]": mutes the countdown and lap feedback, same setting as in Set.
+    private var voiceAccessory: StatusAccessory {
+        return StatusAccessory(title: MidRunAudioLabels.voiceTitle(on: voiceEnabled), action: {
+            voiceEnabled.toggle()
+            if !voiceEnabled {
+                Coach.shared.stopSpeaking()
+            }
+        })
     }
 
     private var banner: Banner {

@@ -319,3 +319,23 @@ Most likely to need a compile fix: `TodayView` (`content` split into `unfinished
 Field checks: finish a run and save, then discard (both land on Today); end a track workout (save, discard, resume path);
 tap a reminder during a run (stays on run); kill the app mid-run, relaunch (Today card, `[ open ]`); `[ free run ]` with the
 pace guard set to easy; `[ today ]` hidden while a run is recording.
+
+## v1.10: progress export, separate voice and click switches (PLAN-v12)
+Written on Linux with no Swift toolchain, so **none of it has been compiled**; `main` (v1.9) is the last compiled state.
+New files: `Models/ProgressExport.swift` (pure markdown builder: `ExportRun`, `ExportWorkout`, `ExportSettings`, `ExportInput`,
+`ProgressExport.markdown/fileName`; test records are filtered inside the builder by their `isTest` flag), `Models/MidRunAudioLabels.swift`
+(titles and accessibility labels of the mid-run switches), `Views/ShareSheet.swift` (`UIActivityViewController` wrapper and the
+`Identifiable` `ShareFile`). Tests: `ProgressExportTests`, `MidRunAudioLabelsTests`.
+Voice switch: `SettingsKey.voiceEnabled` (default true, registered), `AppSettings.voiceEnabled`; `Coach.speak(..., force:)` returns early
+when it is off but still logs the cue with " (voice off)"; `preview(identifier:)` forces. The switch never touches `Metronome`, the click
+switch never touches `Coach`. Settings: `voice` and `click` check rows (turning voice off calls `stopSpeaking()`); RunView: `[ voice on/off ]`
+and `[ click on/off ]` above pause and end (`toggleMetronome()` now ends by writing `metronomeEnabled` from the real state); TrackSessionView:
+`[ voice on/off ]` accessory. Export: `PlanStore.exportPlan/exportStartYMD/exportProgress/exportSchedule/exportTodayOffset` always return the real
+plan (not the test week's); HistoryView has `[ export ]` (writes to the temporary folder, share sheet via `.sheet(item:)`), and a one-line note.
+Also: `AppSettings.metronomeEnabled`; `project.yml` 1.10; Settings status text v1.10.
+Most likely to need a compile fix: `ProgressExport.swift` (the file-private `ExportContext` used by private static methods; tuple return of
+`trialResult`; `sorted` closures with several statements), `HistoryView.makeExportInput` (long `ExportInput` initializer),
+`RunView.toggleMetronome` (`defer` writing an `@AppStorage` value), `ShareSheet`.
+Field checks: export from Log with runs, track workouts and a finished time trial, attach to a chat; export during a test week (real plan,
+no test rows); voice off then start a run (silent, diagnostics log shows "(voice off)"), voice off mid-utterance, click off mid-run and while
+paused, both back on; pick a voice in Set with the voice switch off (sample still plays).

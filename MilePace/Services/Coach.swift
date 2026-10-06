@@ -280,7 +280,7 @@ final class Coach: NSObject, AVSpeechSynthesizerDelegate {
     /// Says a sample cue in the given voice ("" is the default voice), cutting off anything being said.
     func preview(identifier: String) {
         stopSpeaking()
-        speak("Mile 1. Split 7 minutes 2. Speed up.", reason: "preview", voiceIdentifier: identifier)
+        speak("Mile 1. Split 7 minutes 2. Speed up.", reason: "preview", voiceIdentifier: identifier, force: true)
     }
 
     /// The voice for an identifier from Set; the system en-US voice when it is empty or no longer installed.
@@ -291,8 +291,14 @@ final class Coach: NSObject, AVSpeechSynthesizerDelegate {
         return AVSpeechSynthesisVoice(language: "en-US")
     }
 
-    /// `voiceIdentifier` overrides the stored choice (the preview in the voice picker).
-    private func speak(_ text: String, reason: String? = nil, voiceIdentifier: String? = nil) {
+    /// `voiceIdentifier` overrides the stored choice (the preview in the voice picker). With the voice
+    /// switch off nothing is said, but the cue is still logged so the run log shows what would have been
+    /// said; `force` (previews) speaks anyway.
+    private func speak(_ text: String, reason: String? = nil, voiceIdentifier: String? = nil, force: Bool = false) {
+        if !force && !AppSettings.voiceEnabled {
+            Diagnostics.shared.logCue(text, reason: reason.map { $0 + " (voice off)" } ?? "(voice off)")
+            return
+        }
         Diagnostics.shared.logCue(text, reason: reason)
         AudioSessionCoordinator.shared.beginSpeech()
         let utterance = AVSpeechUtterance(string: text)

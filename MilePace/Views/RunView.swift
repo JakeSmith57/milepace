@@ -18,6 +18,7 @@ struct RunView: View {
     @AppStorage(SettingsKey.runMode) private var runMode: RunMode = .free
     @AppStorage(SettingsKey.roadWorkoutName) private var workoutName: String = ""
     @AppStorage(SettingsKey.metronomeEnabled) private var metronomeEnabled: Bool = false
+    @AppStorage(SettingsKey.voiceEnabled) private var voiceEnabled: Bool = true
     @AppStorage(SettingsKey.metronomeBPM) private var metronomeBPM: Int = AppSettings.defaultMetronomeBPM
     @AppStorage(SettingsKey.metronomeVolume) private var metronomeVolume: Double = AppSettings.defaultMetronomeVolume
     @AppStorage(SettingsKey.diagnostics) private var diagnosticsEnabled: Bool = false
@@ -660,6 +661,7 @@ struct RunView: View {
 
     private var controls: some View {
         VStack(spacing: Theme.s2) {
+            audioToggles
             HStack(spacing: Theme.s2) {
                 workoutButton
                 pauseButton
@@ -670,6 +672,37 @@ struct RunView: View {
         }
         .padding(.horizontal, Theme.s3)
         .padding(.vertical, Theme.s2)
+    }
+
+    /// Whether the click is audible now, or held back by a pause and back on resume.
+    private var clickIsOn: Bool {
+        return metronome.isRunning || metronome.isSuspended
+    }
+
+    /// "[ voice on ]" and "[ click on ]": each mutes or restores its own sound, mid-run, independently.
+    private var audioToggles: some View {
+        HStack(spacing: Theme.s2) {
+            voiceToggleButton
+            clickToggleButton
+        }
+    }
+
+    private var voiceToggleButton: some View {
+        BracketButton(title: MidRunAudioLabels.voiceTitle(on: voiceEnabled),
+                      minHeight: 44,
+                      size: .micro) {
+            toggleVoice()
+        }
+        .accessibilityLabel(MidRunAudioLabels.voiceAccessibility(on: voiceEnabled))
+    }
+
+    private var clickToggleButton: some View {
+        BracketButton(title: MidRunAudioLabels.clickTitle(on: clickIsOn),
+                      minHeight: 44,
+                      size: .micro) {
+            toggleMetronome()
+        }
+        .accessibilityLabel(MidRunAudioLabels.clickAccessibility(on: clickIsOn))
     }
 
     private var pauseButton: some View {
@@ -825,7 +858,20 @@ struct RunView: View {
         }
     }
 
+    /// Mutes or restores the spoken cues. The switch is the same setting as in Set; turning it off cuts
+    /// off what is being said. The click is not touched.
+    private func toggleVoice() {
+        voiceEnabled.toggle()
+        if !voiceEnabled {
+            Coach.shared.stopSpeaking()
+        }
+    }
+
     private func toggleMetronome() {
+        defer {
+            // The next run starts the way this one was left.
+            metronomeEnabled = metronome.isRunning || metronome.isSuspended
+        }
         if metronome.isRunning {
             metronome.stop()
         } else if isPaused {

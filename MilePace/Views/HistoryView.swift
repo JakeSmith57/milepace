@@ -8,6 +8,9 @@ struct HistoryView: View {
     @Query(sort: \WorkoutRecord.date, order: .reverse) private var workouts: [WorkoutRecord]
 
     @State private var showingAdd = false
+    /// The export file waiting in the share sheet.
+    @State private var shareFile: ShareFile?
+    @State private var exportFailed = false
 
     /// The same Monday-to-Sunday weekly miles as the today screen: runs plus estimated track workouts.
     private var buckets: [WeekBucket] {
@@ -30,9 +33,11 @@ struct HistoryView: View {
                            center: "week of " + (thisWeek?.label ?? "--"),
                            right: String(format: "%.1f", thisWeekMiles) + " mi",
                            accessory: StatusAccessory(title: "today", action: { PlanStore.shared.goHome() }),
+                           accessories: [exportAccessory],
                            tag: PlanStore.shared.isTestWeek ? "test" : "")
                 ScrollView {
                     VStack(alignment: .leading, spacing: 0) {
+                        exportNote
                         HeroReadout(label: "this week",
                                     value: String(format: "%.1f", thisWeekMiles),
                                     unit: "mi",
@@ -55,6 +60,99 @@ struct HistoryView: View {
             .sheet(isPresented: $showingAdd) {
                 AddMilesView()
             }
+            .sheet(item: $shareFile) { file in
+                ShareSheet(url: file.url)
+            }
+        }
+    }
+
+    // MARK: Export
+
+    private var exportAccessory: StatusAccessory {
+        return StatusAccessory(title: "export", action: { exportProgress() })
+    }
+
+    /// One quiet line saying what [ export ] does, or that it failed.
+    @ViewBuilder
+    private var exportNote: some View {
+        if exportFailed {
+            Text("couldn't make the export file.")
+                .font(Theme.mono(.micro))
+                .foregroundStyle(Theme.fg)
+                .padding(.top, Theme.s2)
+        } else if !runs.isEmpty || !workouts.isEmpty {
+            Text("[ export ] makes a file to send to your coach.")
+                .font(Theme.mono(.micro))
+                .foregroundStyle(Theme.dim)
+                .padding(.top, Theme.s2)
+        }
+    }
+
+    private var exportRuns: [ExportRun] {
+        return runs.map { run in
+            ExportRun(date: run.date,
+                      distanceMeters: run.distanceMeters,
+                      durationSeconds: run.durationSeconds,
+                      averagePace: run.averagePace,
+                      splits: run.splits,
+                      averageCadence: run.averageCadence,
+                      workoutName: run.workoutName,
+                      notes: run.notes,
+                      hasRoute: !run.routeData.isEmpty,
+                      isTest: run.isTest)
+        }
+    }
+
+    private var exportWorkouts: [ExportWorkout] {
+        return workouts.map { workout in
+            ExportWorkout(date: workout.date,
+                          name: workout.name,
+                          spec: workout.spec,
+                          repTimes: workout.repTimes,
+                          lapSplits: workout.lapSplits,
+                          isTest: workout.isTest)
+        }
+    }
+
+    private var exportSettings: ExportSettings {
+        return ExportSettings(mileTime: AppSettings.mileTime,
+                              goalMile: AppSettings.goalMile,
+                              paceWindow: AppSettings.paceWindow,
+                              metronomeBPM: AppSettings.metronomeBPM,
+                              metronomeEnabled: AppSettings.metronomeEnabled,
+                              voiceEnabled: AppSettings.voiceEnabled,
+                              cueInterval: AppSettings.cueInterval.title)
+    }
+
+    private func makeExportInput(now: Date) -> ExportInput {
+        let store = PlanStore.shared
+        let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "1.10"
+        return ExportInput(generatedAt: now,
+                           appVersion: version,
+                           plan: store.exportPlan,
+                           startYMD: store.exportStartYMD,
+                           progress: store.exportProgress,
+                           schedule: store.exportSchedule,
+                           todayOffset: store.exportTodayOffset,
+                           settings: exportSettings,
+                           zones: AppSettings.zones,
+                           runs: exportRuns,
+                           workouts: exportWorkouts,
+                           testWeekActive: store.isTestWeek)
+    }
+
+    /// Writes the progress file to the temporary folder and offers it in the share sheet.
+    private func exportProgress() {
+        let now = Date()
+        let text = ProgressExport.markdown(makeExportInput(now: now))
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent(ProgressExport.fileName(for: now))
+        do {
+            try text.write(to: url, atomically: true, encoding: .utf8)
+            exportFailed = false
+            shareFile = ShareFile(url: url)
+        } catch {
+            Diagnostics.shared.log(.state, "progress export failed: \(error.localizedDescription)")
+            exportFailed = true
         }
     }
 

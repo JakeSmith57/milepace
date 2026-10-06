@@ -370,6 +370,36 @@ final class PlanStore {
         apply(PlanProgress(planVersion: plan?.version ?? 1))
     }
 
+    // MARK: Export
+
+    /// The real plan, also while the test week is on (then `plan` is the test plan).
+    var exportPlan: PlanFile? {
+        return isTestWeek ? realPlan : plan
+    }
+
+    /// The real plan's start as "yyyy-MM-dd", also while the test week is on.
+    var exportStartYMD: String {
+        return realStartYMD
+    }
+
+    /// The real progress, also while the test week is on (then `progress` is the test progress).
+    var exportProgress: PlanProgress {
+        return isTestWeek ? realProgress : progress
+    }
+
+    /// The real plan with the real progress, never the test week's.
+    var exportSchedule: PlanSchedule? {
+        guard let plan = exportPlan else { return nil }
+        return PlanSchedule(plan: plan,
+                            progress: exportProgress,
+                            startWeekday: PlanCalendar.mondayWeekday(of: realStartDate))
+    }
+
+    /// Days from the real plan's start to today (the 03:00 day boundary), also while the test week is on.
+    var exportTodayOffset: Int {
+        return PlanCalendar.activityDay(of: Date(), start: realStartDate)
+    }
+
     // MARK: Screens
 
     /// Asks `ContentView` to show `screen` on top of Today.
