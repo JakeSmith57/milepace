@@ -207,6 +207,12 @@ final class Coach: NSObject, AVSpeechSynthesizerDelegate {
         }
     }
 
+    /// Says "Paused" or "Resumed", so a pause from a stray tap is never silent.
+    func announcePause(paused: Bool) {
+        stopSpeaking()
+        speak(paused ? "Paused." : "Resumed.", reason: paused ? "pause" : "resume")
+    }
+
     // MARK: Track announcements
 
     func announceRestCountdown(seconds: Int) {

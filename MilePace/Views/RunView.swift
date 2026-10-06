@@ -713,8 +713,10 @@ struct RunView: View {
             Coach.shared.resetRepGuard()
             if isPaused {
                 tracker.resume()
+                Coach.shared.announcePause(paused: false)
             } else {
                 tracker.pause()
+                Coach.shared.announcePause(paused: true)
             }
         }
     }

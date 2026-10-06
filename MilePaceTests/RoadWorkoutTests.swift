@@ -159,7 +159,7 @@ final class RoadWorkoutTests: XCTestCase {
         for second in 1...70 {
             events += session.update(elapsed: Double(second), distance: 4.0 * Double(second))
         }
-        XCTAssertEqual(labels(events), ["half1", "end1", "start2/2"])
+        XCTAssertEqual(labels(events), ["left30-1", "end1", "start2/2"])
     }
 
     // MARK: Presets and specs
