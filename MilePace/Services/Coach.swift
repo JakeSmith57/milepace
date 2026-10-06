@@ -207,6 +207,13 @@ final class Coach: NSObject, AVSpeechSynthesizerDelegate {
         }
     }
 
+    /// Said as soon as the end bar is pressed, so a touch from a thumb or a pocket is noticed before the
+    /// 3-second hold ends the run.
+    func announceEndHold() {
+        stopSpeaking()
+        speak("Hold to end the run.", reason: "end hold")
+    }
+
     /// Says "Paused" or "Resumed", so a pause from a stray tap is never silent.
     func announcePause(paused: Bool) {
         stopSpeaking()

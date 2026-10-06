@@ -666,7 +666,9 @@ struct RunView: View {
                 workoutButton
                 pauseButton
             }
-            HoldBar(title: "hold to end") {
+            HoldBar(title: "hold 3s to end",
+                    duration: 3.0,
+                    onPressBegan: { Coach.shared.announceEndHold() }) {
                 endRun()
             }
         }

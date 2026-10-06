@@ -3,7 +3,7 @@
 A small native iOS app (SwiftUI, iOS 17+) for training from a 6:52 mile toward a 5:30 mile.
 
 - **Today**: the built-in 37-week plan (race Monday 2027-06-21). Shows today's session with its target paces and a `[ start ]` button that sets up the run or track screen, a missed-session card, the week at a glance, and the full plan.
-- **Run**: live GPS pace (instant Doppler pace plus a 30 second average), distance and mile splits, with optional voice cues and a pace guard (Easy or Threshold). Hold the "hold to end" bar for one second to finish.
+- **Run**: live GPS pace (instant Doppler pace plus a 30 second average), distance and mile splits, with optional voice cues and a pace guard (Easy or Threshold). Hold the "hold 3s to end" bar for three seconds to finish (the voice warns as soon as it is pressed). Skip rep and skip rest need a one-second hold.
 - **Track**: tap-per-lap workout timer with target splits from your current training zones, rest countdown, and a results table.
 - **Log**: weekly mileage chart (Monday to Sunday, last 10 weeks), saved runs and workouts, and manual mileage entry for treadmill or watch runs.
 - **Set**: current and goal mile time, zone preview, plan start date and reset, voice and haptic toggles, light or dark display, and a diagnostics switch.

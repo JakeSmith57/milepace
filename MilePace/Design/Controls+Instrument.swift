@@ -115,7 +115,7 @@ struct HoldBracketButton: View {
     let title: String
     var style: BracketStyle = .plain
     var minHeight: CGFloat = 56
-    var duration: Double = 0.6
+    var duration: Double = 1.0
     let action: () -> Void
 
     @State private var pressing = false
@@ -144,15 +144,18 @@ struct HoldBracketButton: View {
 struct HoldBar: View {
     let title: String
     let duration: Double
+    /// Called when a press begins, before it has been held long enough (e.g. a spoken warning).
+    let onPressBegan: (() -> Void)?
     let action: () -> Void
 
     @State private var pressStart: Date? = nil
 
     private static let gaugeCells = 10
 
-    init(title: String, duration: Double = 1.0, action: @escaping () -> Void) {
+    init(title: String, duration: Double = 1.0, onPressBegan: (() -> Void)? = nil, action: @escaping () -> Void) {
         self.title = title
         self.duration = duration
+        self.onPressBegan = onPressBegan
         self.action = action
     }
 
@@ -185,6 +188,9 @@ struct HoldBar: View {
                             },
                             onPressingChanged: { pressing in
                                 pressStart = pressing ? Date() : nil
+                                if pressing {
+                                    onPressBegan?()
+                                }
                             })
         .accessibilityLabel(title)
     }
