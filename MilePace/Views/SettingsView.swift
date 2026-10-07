@@ -16,6 +16,7 @@ struct SettingsView: View {
     @AppStorage(SettingsKey.voiceEnabled) private var voiceEnabled: Bool = true
     @AppStorage(SettingsKey.autoPause) private var autoPause: Bool = true
     @AppStorage(SettingsKey.homeAddress) private var homeAddress: String = RouteHome.defaultAddress
+    @AppStorage(SettingsKey.offRouteCue) private var offRouteCue: Bool = true
     @AppStorage(SettingsKey.metronomeEnabled) private var metronomeEnabled: Bool = false
     @AppStorage(SettingsKey.metronomeBPM) private var metronomeBPM: Int = AppSettings.defaultMetronomeBPM
     @AppStorage(SettingsKey.metronomeVolume) private var metronomeVolume: Double = AppSettings.defaultMetronomeVolume
@@ -438,6 +439,9 @@ struct SettingsView: View {
                 resetHome()
             }
             .padding(.top, Theme.s2)
+            CheckRow(title: "off-route cue", isOn: $offRouteCue)
+                .padding(.top, Theme.s2)
+            note("says \"Off route.\" once when you stay more than 40 m from the route you follow for 20 seconds. needs the voice switch. never on the treadmill.")
             note("routes start here. after a new address, tap [ resolve all ] on the routes screen to find them again (needs the network).")
         }
     }

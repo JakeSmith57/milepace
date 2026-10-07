@@ -7,37 +7,42 @@ struct FollowedRoute: Equatable {
     let meters: Double
 }
 
-/// The data view's "route 1.2 / 3.1 mi" row. It keeps how far along the route the last fix was and moves
-/// that forward as fixes arrive (`RouteGeometry.progress`: an out-and-back or a loop never jumps back to
-/// the first pass). When the view is rebuilt, for example after a switch to the map and back, it replays
-/// the whole run so far.
+/// The data view's "route 1.2 / 3.1 mi" row. The progress itself lives in `RouteFollowState`, which
+/// `RouteFollowMonitor` keeps up to date whichever view (data or map) is showing.
 struct RouteFollowRow: View {
+    let state: RouteFollowState
+    let total: Double
+
+    var body: some View {
+        ReadoutRow(key: "route", value: RouteFormat.followText(along: state.along, total: total))
+    }
+}
+
+/// An invisible view that moves the run along the followed route as saved fixes arrive, and says
+/// "Off route." once per excursion (through `Coach`, so the voice switch applies; the setting `off-route
+/// cue` turns it off). Only shown for an outdoor run that follows a route.
+struct RouteFollowMonitor: View {
+    let state: RouteFollowState
     let followed: FollowedRoute
     let liveRoute: [RoutePoint]
 
-    @State private var along: Double? = nil
-    @State private var processed: Int = 0
-
     var body: some View {
-        ReadoutRow(key: "route", value: RouteFormat.followText(along: along, total: followed.meters))
+        Color.clear
+            .frame(width: 0, height: 0)
+            .accessibilityHidden(true)
             .onAppear {
-                advance()
+                update()
             }
             .onChange(of: liveRoute.count) { _, _ in
-                advance()
+                update()
             }
     }
 
-    private func advance() {
-        if liveRoute.count < processed {
-            processed = 0
-            along = nil
+    private func update() {
+        let events = state.advance(liveRoute: liveRoute, on: followed.points)
+        // Only the latest event matters: a catch-up after a gap must not announce an old excursion.
+        if events.last == .off && AppSettings.offRouteCue {
+            Coach.shared.announceOffRoute()
         }
-        guard liveRoute.count > processed else { return }
-        let fresh = liveRoute[processed...].map { point in
-            GeoPoint(lat: point.lat, lon: point.lon)
-        }
-        along = RouteGeometry.follow(track: fresh, on: followed.points, startingAlong: along)
-        processed = liveRoute.count
     }
 }

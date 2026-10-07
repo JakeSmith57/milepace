@@ -47,6 +47,8 @@ struct RunView: View {
     @State private var draftMilesText: String = ""
     /// The route this run follows, loaded when it starts (outdoor runs with a route selected).
     @State private var followed: FollowedRoute? = nil
+    /// How far along the followed route the run is, and whether it is off it.
+    @State private var followState = RouteFollowState()
 
     init(isActive: Bool) {
         self.isActive = isActive
@@ -641,6 +643,7 @@ struct RunView: View {
     private var activeContent: some View {
         VStack(spacing: 0) {
             workoutBanner
+            routeMonitor
             if tracker.isTreadmill {
                 treadmillContent
             } else if viewMode == .map {
@@ -803,11 +806,18 @@ struct RunView: View {
         }
     }
 
+    /// Keeps the route progress and the off-route cue going in both views; never on the treadmill.
+    @ViewBuilder
+    private var routeMonitor: some View {
+        if let route = followed, !tracker.isTreadmill {
+            RouteFollowMonitor(state: followState, followed: route, liveRoute: tracker.liveRoute)
+        }
+    }
+
     @ViewBuilder
     private var followRow: some View {
         if let route = followed {
-            RouteFollowRow(followed: route, liveRoute: tracker.liveRoute)
-                .id(route.id)
+            RouteFollowRow(state: followState, total: route.meters)
         }
     }
 
@@ -1013,8 +1023,10 @@ struct RunView: View {
               let saved = savedRoutes.first(where: { $0.id == id }),
               !saved.pointsData.isEmpty else {
             followed = nil
+            followState.reset()
             return
         }
+        followState.reset()
         followed = FollowedRoute(id: id, points: saved.points, meters: saved.distanceMeters)
     }
 
@@ -1231,6 +1243,7 @@ struct RunView: View {
             RouteResolver.shared.markUsed(id: route.id)
         }
         followed = nil
+        followState.reset()
         store.selectedRouteId = nil
         summary = nil
         savedRecord = nil

@@ -12,8 +12,10 @@ struct RouteMapView: View {
 
     private let coordinates: [CLLocationCoordinate2D]
     private let startPins: [Pin]
+    private let height: CGFloat
 
-    init(points: [GeoPoint]) {
+    init(points: [GeoPoint], height: CGFloat = 260) {
+        self.height = height
         let mapped = points.map { point in
             CLLocationCoordinate2D(latitude: point.lat, longitude: point.lon)
         }
@@ -27,7 +29,7 @@ struct RouteMapView: View {
 
     var body: some View {
         mapView
-            .frame(height: 260)
+            .frame(height: height)
             .overlay(Rectangle().strokeBorder(Theme.fg, lineWidth: Theme.rule))
     }
 

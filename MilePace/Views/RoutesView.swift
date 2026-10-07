@@ -11,6 +11,7 @@ struct RoutesView: View {
     @Query private var saved: [SavedRoute]
 
     @State private var selected: RouteRef? = nil
+    @State private var showMake: Bool = false
 
     private var catalog: RouteCatalog? {
         return RouteCatalogLoader.bundled
@@ -40,6 +41,9 @@ struct RoutesView: View {
         .sheet(item: $selected) { ref in
             RouteDetailView(routeId: ref.id)
         }
+        .sheet(isPresented: $showMake) {
+            MakeLoopView()
+        }
     }
 
     @ViewBuilder
@@ -52,6 +56,12 @@ struct RoutesView: View {
                     .padding(.top, Theme.s2)
                 nearHome(catalog)
                 resolveArea(catalog)
+                BracketButton(title: "make a loop") {
+                    showMake = true
+                }
+                .padding(.top, Theme.s2)
+                SavedRoutesSection(onOpen: { id in selected = RouteRef(id: id) })
+                YourRoutesSection()
                 Text("the network is used only to resolve a route. resolved routes are saved on this phone and work without it.")
                     .font(Theme.mono(.micro))
                     .foregroundStyle(Theme.dim)

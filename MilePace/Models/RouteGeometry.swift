@@ -66,9 +66,34 @@ enum RouteGeometry {
         }
         let forward = near.filter { $0.along >= previous - backwardLimit }
         if let pick = forward.min(by: { $0.along < $1.along }) {
-            return (alongMeters: max(pick.along, previous), offsetMeters: pick.offset)
+            return (alongMeters: max(pick.along, previous), offsetMeters: minOffset)
         }
         return (alongMeters: previous, offsetMeters: minOffset)
+    }
+
+    /// Initial bearing from `a` to `b` in degrees, 0 (north) up to 360, clockwise.
+    static func bearing(from a: GeoPoint, to b: GeoPoint) -> Double {
+        let lat1 = a.lat * Double.pi / 180
+        let lat2 = b.lat * Double.pi / 180
+        let dLon = (b.lon - a.lon) * Double.pi / 180
+        let y = sin(dLon) * cos(lat2)
+        let x = cos(lat1) * sin(lat2) - sin(lat1) * cos(lat2) * cos(dLon)
+        let degrees = atan2(y, x) * 180 / Double.pi
+        return (degrees + 360).truncatingRemainder(dividingBy: 360)
+    }
+
+    /// The point `meters` from `start` along `bearingDegrees` (great circle).
+    static func destination(from start: GeoPoint, bearingDegrees: Double, meters: Double) -> GeoPoint {
+        let lat1 = start.lat * Double.pi / 180
+        let lon1 = start.lon * Double.pi / 180
+        let theta = bearingDegrees * Double.pi / 180
+        let delta = meters / earthRadius
+        let sinLat2 = sin(lat1) * cos(delta) + cos(lat1) * sin(delta) * cos(theta)
+        let lat2 = asin(max(-1.0, min(1.0, sinLat2)))
+        let y = sin(theta) * sin(delta) * cos(lat1)
+        let x = cos(delta) - sin(lat1) * sin(lat2)
+        let lon2 = lon1 + atan2(y, x)
+        return GeoPoint(lat: lat2 * 180 / Double.pi, lon: lon2 * 180 / Double.pi)
     }
 
     /// Runs `progress` over a whole track of fixes, in order, and returns the last along value.

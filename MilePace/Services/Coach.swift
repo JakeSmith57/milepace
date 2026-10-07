@@ -220,6 +220,11 @@ final class Coach: NSObject, AVSpeechSynthesizerDelegate {
         speak(paused ? "Paused." : "Resumed.", reason: paused ? "pause" : "resume")
     }
 
+    /// Said once when the run has been off the route it follows for 20 seconds. Respects the voice switch.
+    func announceOffRoute() {
+        speak("Off route.", reason: "off route")
+    }
+
     /// Treadmill runs have no distance, so every 5 minutes says the time (and the cadence when known).
     func announceTreadmillMinutes(_ minutes: Int, cadence: Double?) {
         speak(TreadmillCue.spokenText(minutes: minutes, cadence: cadence), reason: "minutes \(minutes)")

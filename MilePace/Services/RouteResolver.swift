@@ -117,6 +117,56 @@ final class RouteResolver {
         try? AppModel.shared.container.mainContext.save()
     }
 
+    /// Saves a route that did not come from the catalog (a generated loop or one learned from runs), or
+    /// replaces the path of one saved before under the same id. False when the save failed.
+    @discardableResult
+    func upsert(id: String,
+                name: String,
+                kind: SavedRouteKind,
+                points: [GeoPoint],
+                stops: [GeoPoint],
+                notes: String) -> Bool {
+        let context = AppModel.shared.container.mainContext
+        let meters = RouteGeometry.length(of: points)
+        if let existing = savedRoute(id: id) {
+            existing.name = name
+            existing.kind = kind.rawValue
+            existing.notes = notes
+            existing.update(points: points,
+                            stops: stops,
+                            distanceMeters: meters,
+                            homeAddress: RouteHome.address,
+                            createdAt: Date())
+        } else {
+            context.insert(SavedRoute(id: id,
+                                      name: name,
+                                      kind: kind,
+                                      points: points,
+                                      stops: stops,
+                                      distanceMeters: meters,
+                                      notes: notes,
+                                      homeAddress: RouteHome.address))
+        }
+        do {
+            try context.save()
+            return true
+        } catch {
+            context.rollback()
+            return false
+        }
+    }
+
+    /// Deletes a saved route, and forgets it as the chosen route when it was that.
+    func delete(id: String) {
+        guard let saved = savedRoute(id: id) else { return }
+        let context = AppModel.shared.container.mainContext
+        context.delete(saved)
+        try? context.save()
+        if PlanStore.shared.selectedRouteId == id {
+            PlanStore.shared.selectedRouteId = nil
+        }
+    }
+
     private func store(_ resolved: ResolvedRoute, notes: String) {
         let context = AppModel.shared.container.mainContext
         if let existing = savedRoute(id: resolved.id) {
@@ -244,6 +294,11 @@ final class RouteResolver {
         return saved.points.last
     }
 
+    /// The home address's point: the saved one, or one geocode (needs the network the first time).
+    func homePoint() async throws -> GeoPoint {
+        return try await resolveHome(address: RouteHome.address)
+    }
+
     // MARK: Lookups
 
     private func resolveHome(address: String) async throws -> GeoPoint {
@@ -325,7 +380,7 @@ final class RouteResolver {
 
     /// One walking leg: `MKDirections(request:).calculate() async throws -> MKDirections.Response`, the
     /// first route's polyline. Tries again twice after a throttling error.
-    private func walkingLeg(from: GeoPoint, to: GeoPoint) async throws -> [GeoPoint] {
+    func walkingLeg(from: GeoPoint, to: GeoPoint, retryOnThrottle: Bool = true) async throws -> [GeoPoint] {
         var attempt = 0
         while true {
             do {
@@ -334,7 +389,7 @@ final class RouteResolver {
                 throw CancellationError()
             } catch {
                 let mapped = RouteResolveError.classify(error, query: "")
-                if mapped == RouteResolveError.throttled && attempt < 2 {
+                if retryOnThrottle && mapped == RouteResolveError.throttled && attempt < 2 {
                     attempt += 1
                     try await Task.sleep(nanoseconds: throttleWait)
                     continue

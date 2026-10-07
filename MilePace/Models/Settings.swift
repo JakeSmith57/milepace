@@ -45,6 +45,8 @@ enum SettingsKey {
     static let homeGeocodedAddress = "homeGeocodedAddress"
     static let homeLatitude = "homeLatitude"
     static let homeLongitude = "homeLongitude"
+    /// Say "Off route." when a run strays from the route it follows.
+    static let offRouteCue = "offRouteCue"
 }
 
 /// Light, dark or follow the system.
@@ -183,7 +185,8 @@ enum AppSettings {
             SettingsKey.voiceRate: defaultVoiceRate,
             SettingsKey.voiceEnabled: true,
             SettingsKey.autoPause: true,
-            SettingsKey.runSurface: RunSurface.outdoor.rawValue
+            SettingsKey.runSurface: RunSurface.outdoor.rawValue,
+            SettingsKey.offRouteCue: true
         ])
     }
 
@@ -219,6 +222,8 @@ enum AppSettings {
     static var voiceEnabled: Bool { bool(SettingsKey.voiceEnabled, fallback: true) }
     /// Pause and resume by themselves on outdoor runs (never during reps or recoveries).
     static var autoPause: Bool { bool(SettingsKey.autoPause, fallback: true) }
+    /// The "Off route." voice cue while following a route (still needs the voice switch).
+    static var offRouteCue: Bool { bool(SettingsKey.offRouteCue, fallback: true) }
     static var metronomeEnabled: Bool { bool(SettingsKey.metronomeEnabled, fallback: false) }
     static var diagnosticsEnabled: Bool { bool(SettingsKey.diagnostics, fallback: false) }
 
