@@ -339,3 +339,17 @@ Most likely to need a compile fix: `ProgressExport.swift` (the file-private `Exp
 Field checks: export from Log with runs, track workouts and a finished time trial, attach to a chat; export during a test week (real plan,
 no test rows); voice off then start a run (silent, diagnostics log shows "(voice off)"), voice off mid-utterance, click off mid-run and while
 paused, both back on; pick a voice in Set with the voice switch off (sample still plays).
+
+## v1.13: routines (PLAN-v13)
+Written on Linux with no Swift toolchain, so **none of it has been compiled**; `main` (v1.10) is the last compiled state.
+New files: `Models/Routines.swift` (`RoutineExercise`, `RoutineGroup`, `Routine`, `RoutineLibrary`, `RoutineLoader` with `bundled`, pure
+`RoutineSuggestion.ids(for:)`), `Views/RoutinesView.swift` (library screen, rows open a sheet), `Views/RoutineDetailView.swift` (follow-along
+checklist, checks are `@State` only), `Resources/routines.json` (content; bundled by the folder glob like `plan.json`).
+Tests: `RoutinesTests`, plus `.routines` cases in `ScreenRoutingTests`.
+Changed: `AppTab` (`.routines`; no exhaustive switch over it exists), `ContentView` (sixth layer), `TodayView` (`[ routines ]` full width under the
+two other buttons; `[ warm-up ]` / `[ cool-down ]` text buttons on today's session card, sheet via `routineSheet`), `SettingsView` (v1.13),
+`project.yml` (1.13), README.
+Most likely to need a compile fix: `TodayView.routineLinks` (`@ViewBuilder` with `let` statements and `flatMap` returning an optional),
+`RoutineDetailView` (`openURL` captured in a closure passed to a private subview).
+Field checks: open a routine from Today and from a session card, tick and reset, tap `[ video ]` and `[ videos ]` (YouTube app opens if
+installed), try `[ routines ]` while a run is recording (stays on run).

@@ -1,0 +1,112 @@
+{
+  "version": 1,
+  "routines": [
+    {
+      "id": "warmup-easy",
+      "group": "warmup",
+      "title": "easy run warm-up",
+      "minutes": 5,
+      "when": "before easy and long runs",
+      "why": "a few dynamic moves get you moving freely. the first mile at a very easy pace does the rest.",
+      "exercises": [
+        { "name": "brisk walk or very easy jog", "dose": "2-3 min", "how": "start slower than your easy pace. no stopping to stretch first." },
+        { "name": "leg swings, front to back", "dose": "10 each leg", "how": "hold a wall or post. relaxed swing, let the range grow each rep.", "video": "https://www.youtube.com/watch?v=korxBhGzzJE" },
+        { "name": "leg swings, side to side", "dose": "10 each leg", "how": "face the wall, swing across your body and out.", "video": "https://www.youtube.com/watch?v=korxBhGzzJE" },
+        { "name": "walking lunge with reach", "dose": "5 each leg", "how": "long step, back knee toward the ground, arms overhead. stand tall." },
+        { "name": "first mile easy", "dose": "1 mi", "how": "let the pace come to you. the app's easy zone is the ceiling, not the target." }
+      ]
+    },
+    {
+      "id": "warmup-workout",
+      "group": "warmup",
+      "title": "workout warm-up",
+      "minutes": 20,
+      "when": "before road workouts, track sessions and time trials",
+      "why": "fast running needs warm muscles and a primed stride. a jog, dynamic moves, drills and strides beat static stretching before hard efforts.",
+      "exercises": [
+        { "name": "easy jog", "dose": "10-15 min", "how": "conversational. the last couple of minutes a little quicker." },
+        { "name": "leg swings, front and side", "dose": "10 each way, each leg", "how": "same as the easy warm-up.", "video": "https://www.youtube.com/watch?v=korxBhGzzJE" },
+        { "name": "lunge matrix", "dose": "5 each direction, each leg", "how": "forward lunge, lunge with twist, side lunge, back lunge with reach, rotational lunge. smooth, not deep.", "video": "https://www.youtube.com/watch?v=GJo7_MiRLkU" },
+        { "name": "a-skip", "dose": "2 x 20 m", "how": "skip with a high knee, foot lands under your hip. quick, light contacts.", "video": "https://www.youtube.com/watch?v=yreyTssgLzw" },
+        { "name": "b-skip", "dose": "2 x 20 m", "how": "like an a-skip, then extend the leg and paw it back under you.", "video": "https://www.youtube.com/watch?v=yreyTssgLzw" },
+        { "name": "high knees", "dose": "2 x 20 m", "how": "fast feet, tall posture, arms driving.", "video": "https://www.youtube.com/results?search_query=high+knees+running+drill+form" },
+        { "name": "butt kicks", "dose": "2 x 20 m", "how": "heel comes up under the hip, not out behind you.", "video": "https://www.youtube.com/results?search_query=butt+kicks+running+drill+form" },
+        { "name": "carioca", "dose": "2 x 20 m, each way", "how": "sideways grapevine, hips rotating, light on your feet.", "video": "https://www.youtube.com/results?search_query=carioca+running+drill" },
+        { "name": "strides", "dose": "4-6 x 80-100 m", "how": "build from jog to about mile pace over the first half, hold, then ease off. relaxed, not a sprint. walk back to recover.", "video": "https://www.youtube.com/watch?v=rJANqRlXM3w" },
+        { "name": "before a time trial", "dose": "+ 1-2 strides at goal pace", "how": "finish the warm-up 5-10 min before the start. stay moving and warm until then." }
+      ]
+    },
+    {
+      "id": "cooldown",
+      "group": "cooldown",
+      "title": "cool-down",
+      "minutes": 10,
+      "when": "after workouts, track sessions and time trials. optional after easy runs.",
+      "why": "an easy jog brings you down gradually and adds easy miles. research shows it does little for next-day soreness or injury, so skip it when short on time.",
+      "exercises": [
+        { "name": "easy jog or walk", "dose": "5-10 min", "how": "slower than easy pace. walk if your legs are cooked." },
+        { "name": "calf stretch, straight knee", "dose": "2 x 30 s each", "how": "hands on a wall, back leg straight, heel down.", "video": "https://www.youtube.com/results?search_query=standing+calf+stretch+straight+knee+runners" },
+        { "name": "soleus stretch, bent knee", "dose": "2 x 30 s each", "how": "same position, bend the back knee until you feel it low in the calf." },
+        { "name": "kneeling hip flexor stretch", "dose": "2 x 30 s each", "how": "half kneel, squeeze the glute of the down leg, shift forward slightly.", "video": "https://www.youtube.com/results?search_query=kneeling+hip+flexor+stretch+runners" },
+        { "name": "hamstring stretch", "dose": "2 x 30 s each", "how": "heel on a low step, hinge from the hips with a flat back." },
+        { "name": "figure-4 glute stretch", "dose": "2 x 30 s each", "how": "on your back, ankle over the opposite knee, pull the thigh in.", "video": "https://www.youtube.com/results?search_query=figure+4+glute+stretch" }
+      ]
+    },
+    {
+      "id": "strength",
+      "group": "strength",
+      "title": "runner strength",
+      "minutes": 25,
+      "when": "2x a week, after an easy run or on a non-running day. not the day before a workout or time trial.",
+      "why": "heavy, slow strength work makes running more economical, and combining it with plyometrics later works best. add weight (dumbbells or a loaded backpack) once 3 sets feel easy. your weekly lift counts as one session if it hits legs heavy.",
+      "exercises": [
+        { "name": "single-leg calf raise, straight knee", "dose": "3 x 12-15 each", "how": "on a step, all the way up, 3 s down. hold something for balance only.", "video": "https://www.youtube.com/watch?v=AWBGE0PlYkI" },
+        { "name": "bent-knee calf raise (soleus)", "dose": "3 x 15 each", "how": "knee bent about 30 degrees the whole time. the soleus takes a big share of the load every stride.", "video": "https://www.youtube.com/watch?v=C3tLEvqrW4E" },
+        { "name": "rear-foot elevated split squat", "dose": "3 x 8 each", "how": "back foot on a bench, front knee tracks over toes, go deep and controlled.", "video": "https://www.youtube.com/results?search_query=bulgarian+split+squat+form+runners" },
+        { "name": "single-leg romanian deadlift", "dose": "3 x 8 each", "how": "hinge on one leg, flat back, weight in the opposite hand.", "video": "https://www.youtube.com/results?search_query=single+leg+romanian+deadlift+form" },
+        { "name": "single-leg glute bridge", "dose": "3 x 10 each", "how": "drive through the heel, hips level, 2 s hold at the top." },
+        { "name": "side plank", "dose": "2 x 30-45 s each", "how": "straight line from head to feet, hips high." },
+        { "name": "dead bug", "dose": "2 x 10 each side", "how": "lower back stays pressed to the floor while opposite arm and leg reach out.", "video": "https://www.youtube.com/results?search_query=dead+bug+exercise+form" }
+      ]
+    },
+    {
+      "id": "hips",
+      "group": "strength",
+      "title": "hip routine (myrtl)",
+      "minutes": 8,
+      "when": "2-3x a week, right after a run",
+      "why": "short hip circuit used by many coaches to keep the hips strong and mobile. no equipment.",
+      "exercises": [
+        { "name": "myrtl routine", "dose": "follow the video", "how": "clamshells, side leg raises, fire hydrants, hip circles, donkey kicks and more, about 10 reps each.", "video": "https://www.youtube.com/watch?v=nmHjMCN0nx0" }
+      ]
+    },
+    {
+      "id": "feet",
+      "group": "strength",
+      "title": "foot and big toe",
+      "minutes": 5,
+      "when": "3x a week, any time. good while watching tv.",
+      "why": "strong feet help absorb faster running. with your sesamoid history, keep load gradual and stop anything that hurts under the big toe joint.",
+      "exercises": [
+        { "name": "toe yoga", "dose": "2 x 10", "how": "lift only the big toe while the others stay down, then the reverse.", "video": "https://www.youtube.com/watch?v=UNulHSKgm8s" },
+        { "name": "short foot", "dose": "5 x 10 s holds", "how": "shorten the foot by lifting the arch, toes stay relaxed and flat.", "video": "https://www.youtube.com/watch?v=UNulHSKgm8s" },
+        { "name": "towel scrunch", "dose": "2 x 30 s", "how": "pull a towel toward you with your toes, seated." },
+        { "name": "single-leg balance", "dose": "3 x 30 s each", "how": "barefoot on a flat floor. eyes closed once it's easy." }
+      ]
+    },
+    {
+      "id": "plyo",
+      "group": "strength",
+      "title": "plyometrics (later)",
+      "minutes": 10,
+      "when": "add from phase 2, 1-2x a week after 6+ weeks of strength with no foot pain. on grass or a track, in shoes.",
+      "why": "springy, low-amplitude jumps train stiffness and elastic return. combined with heavy strength it gives the biggest gains. they load the forefoot, so build slowly.",
+      "exercises": [
+        { "name": "pogo hops", "dose": "3 x 15", "how": "two feet, small fast bounces off the ankles, knees nearly straight.", "video": "https://www.youtube.com/results?search_query=pogo+hops+runners+plyometric" },
+        { "name": "skips for height", "dose": "3 x 20 m", "how": "power skip, drive the knee and arm up.", "video": "https://www.youtube.com/results?search_query=power+skips+for+height+drill" },
+        { "name": "bounding", "dose": "3 x 20-30 m", "how": "exaggerated running strides, long time in the air, land under the hip.", "video": "https://www.youtube.com/results?search_query=bounding+drill+runners" },
+        { "name": "single-leg hops", "dose": "2 x 10 each", "how": "only once the others feel easy. stop if anything hurts under the big toe." }
+      ]
+    }
+  ]
+}

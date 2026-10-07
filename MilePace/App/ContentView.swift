@@ -1,6 +1,6 @@
 import SwiftUI
 
-/// Five screens kept alive in a ZStack. Today is the home screen; the other four open on top of it
+/// Six screens kept alive in a ZStack. Today is the home screen; the other five open on top of it
 /// and each has a `[ today ]` button back (see `PlanStore.open` and `PlanStore.goHome`).
 @MainActor
 struct ContentView: View {
@@ -55,6 +55,8 @@ struct ContentView: View {
                 .modifier(TabLayer(isSelected: selection == .log))
             SettingsView()
                 .modifier(TabLayer(isSelected: selection == .set))
+            RoutinesView()
+                .modifier(TabLayer(isSelected: selection == .routines))
         }
     }
 }

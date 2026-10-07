@@ -28,6 +28,8 @@ struct TodayView: View {
     @State private var runDraft: RunDraft? = nil
     /// A track session found on disk that was never saved, offered the same way.
     @State private var trackDraft: TrackSessionDraft? = nil
+    /// A routine opened from the session card, shown as a sheet.
+    @State private var routineSheet: Routine? = nil
 
     private let ticker = Timer.publish(every: 60, on: .main, in: .common).autoconnect()
 
@@ -61,6 +63,9 @@ struct TodayView: View {
         .instrumentScreen()
         .sheet(isPresented: $showOverview) {
             PlanOverviewView(onClose: { showOverview = false })
+        }
+        .sheet(item: $routineSheet) { routine in
+            RoutineDetailView(routine: routine)
         }
         .onAppear {
             store.refresh()
@@ -254,6 +259,9 @@ struct TodayView: View {
                     openTrackList()
                 }
             }
+            BracketButton(title: "routines") {
+                store.open(.routines)
+            }
         }
     }
 
@@ -401,11 +409,36 @@ struct TodayView: View {
                 }
                 Spacer(minLength: 0)
             }
+            routineLinks(session)
         }
         .foregroundStyle(Theme.onSignal)
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(Theme.s3)
         .background(Theme.plan)
+    }
+
+    /// "[ warm-up ]" and, for workouts, "[ cool-down ]": opens the matching routine as a sheet.
+    @ViewBuilder
+    private func routineLinks(_ session: PlanSession) -> some View {
+        let ids = RoutineSuggestion.ids(for: session.kind)
+        let library = RoutineLoader.bundled
+        let before = library?.routine(id: ids.before)
+        let after = ids.after.flatMap { library?.routine(id: $0) }
+        if before != nil || after != nil {
+            HStack(spacing: Theme.s3) {
+                if let routine = before {
+                    TextBracketButton(title: "warm-up", color: Theme.onSignal) {
+                        routineSheet = routine
+                    }
+                }
+                if let routine = after {
+                    TextBracketButton(title: "cool-down", color: Theme.onSignal) {
+                        routineSheet = routine
+                    }
+                }
+                Spacer(minLength: 0)
+            }
+        }
     }
 
     private func startTitle(_ session: PlanSession) -> String {
