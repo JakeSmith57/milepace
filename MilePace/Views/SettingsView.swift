@@ -14,6 +14,7 @@ struct SettingsView: View {
     @AppStorage(SettingsKey.haptics) private var haptics: Bool = true
     @AppStorage(SettingsKey.cueInterval) private var cueInterval: CueInterval = .half
     @AppStorage(SettingsKey.voiceEnabled) private var voiceEnabled: Bool = true
+    @AppStorage(SettingsKey.autoPause) private var autoPause: Bool = true
     @AppStorage(SettingsKey.metronomeEnabled) private var metronomeEnabled: Bool = false
     @AppStorage(SettingsKey.metronomeBPM) private var metronomeBPM: Int = AppSettings.defaultMetronomeBPM
     @AppStorage(SettingsKey.metronomeVolume) private var metronomeVolume: Double = AppSettings.defaultMetronomeVolume
@@ -82,7 +83,7 @@ struct SettingsView: View {
         VStack(spacing: 0) {
             StatusLine(left: "milepace",
                        center: "set",
-                       right: "v1.13",
+                       right: "v1.14",
                        accessory: StatusAccessory(title: "today", action: { PlanStore.shared.goHome() }))
             ScrollView {
                 VStack(alignment: .leading, spacing: 0) {
@@ -91,6 +92,7 @@ struct SettingsView: View {
                     planSection
                     testWeekSection
                     remindersSection
+                    runSection
                     voiceAndFeedback
                     trackOptions
                     metronome
@@ -399,6 +401,14 @@ struct SettingsView: View {
             default:
                 EmptyView()
             }
+        }
+    }
+
+    private var runSection: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            SectionHeader("run")
+            CheckRow(title: "auto-pause", isOn: $autoPause)
+            note("pauses when you stop (lights, traffic) and resumes when you run again. never during reps or recoveries, never on the treadmill.")
         }
     }
 

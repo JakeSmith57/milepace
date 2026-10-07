@@ -30,6 +30,9 @@ final class CadenceTracker {
     private(set) var currentSPM: Double?
     /// Steps counted since `start(at:)`, paused time included.
     private(set) var steps: Int = 0
+    /// Distance in meters the pedometer has estimated since `start(at:)`, paused time included; nil when
+    /// it gives none. A stride-length guess, so only a starting point on a treadmill.
+    private(set) var distanceMeters: Double?
 
     @ObservationIgnored private let pedometer = CMPedometer()
     /// Bumped on every start and stop so late pedometer callbacks are ignored.
@@ -41,6 +44,9 @@ final class CadenceTracker {
     @ObservationIgnored private var stepsAtPauseStart = 0
     /// Live steps counted during the finished pauses.
     @ObservationIgnored private var pausedSteps = 0
+    /// Pedometer distance at the start of the current pause, and the distance counted in finished pauses.
+    @ObservationIgnored private var distanceAtPauseStart: Double = 0
+    @ObservationIgnored private var pausedDistance: Double = 0
 
     static var isAvailable: Bool {
         return CMPedometer.isCadenceAvailable() && CMPedometer.isStepCountingAvailable()
@@ -49,6 +55,9 @@ final class CadenceTracker {
     func start(at date: Date) {
         generation += 1
         steps = 0
+        distanceMeters = nil
+        distanceAtPauseStart = 0
+        pausedDistance = 0
         currentSPM = nil
         pauses = []
         pauseStartedAt = nil
@@ -61,8 +70,9 @@ final class CadenceTracker {
             guard let data = data else { return }
             let stepCount = data.numberOfSteps.intValue
             let stepsPerSecond = data.currentCadence?.doubleValue
+            let meters = data.distance?.doubleValue
             Task { @MainActor in
-                self?.apply(steps: stepCount, stepsPerSecond: stepsPerSecond, token: token)
+                self?.apply(steps: stepCount, stepsPerSecond: stepsPerSecond, meters: meters, token: token)
             }
         }
     }
@@ -76,6 +86,9 @@ final class CadenceTracker {
     /// Clears the last run's numbers.
     func reset() {
         steps = 0
+        distanceMeters = nil
+        distanceAtPauseStart = 0
+        pausedDistance = 0
         currentSPM = nil
         pauses = []
         pauseStartedAt = nil
@@ -90,6 +103,7 @@ final class CadenceTracker {
         guard pauseStartedAt == nil else { return }
         pauseStartedAt = date
         stepsAtPauseStart = steps
+        distanceAtPauseStart = distanceMeters ?? 0
         currentSPM = nil
     }
 
@@ -101,6 +115,18 @@ final class CadenceTracker {
             pauses.append(DateInterval(start: began, end: date))
         }
         pausedSteps += max(0, steps - stepsAtPauseStart)
+        pausedDistance += max(0, (distanceMeters ?? 0) - distanceAtPauseStart)
+    }
+
+    /// The pedometer's distance estimate in meters outside pauses, or nil when it gave none.
+    var estimatedDistance: Double? {
+        guard let total = distanceMeters, total > 0 else { return nil }
+        var paused = pausedDistance
+        if pauseStartedAt != nil {
+            paused += max(0, total - distanceAtPauseStart)
+        }
+        let moving = total - paused
+        return moving > 0 ? moving : nil
     }
 
     /// Steps counted so far outside pauses, from the live updates.
@@ -152,9 +178,12 @@ final class CadenceTracker {
         }
     }
 
-    private func apply(steps stepCount: Int, stepsPerSecond: Double?, token: Int) {
+    private func apply(steps stepCount: Int, stepsPerSecond: Double?, meters: Double?, token: Int) {
         guard token == generation else { return }
         steps = stepCount
+        if let meters = meters, meters.isFinite, meters >= 0 {
+            distanceMeters = meters
+        }
         if pauseStartedAt != nil {
             // Steps while paused still count towards `steps`, but they are not the runner's current cadence.
             currentSPM = nil

@@ -15,6 +15,9 @@ struct RunDraft: Codable, Equatable {
     var workoutName: String
     /// The run was made during the test week. Drafts saved before v1.7 have no such field and read as false.
     var isTest: Bool = false
+    /// A treadmill run: `distanceMeters` is only the pedometer's estimate (0 without one), so a recovered
+    /// draft asks for the distance. Drafts saved before v1.14 have no such field and read as outdoor.
+    var isTreadmill: Bool = false
 
     enum CodingKeys: String, CodingKey {
         case start
@@ -25,6 +28,7 @@ struct RunDraft: Codable, Equatable {
         case cadenceSteps
         case workoutName
         case isTest
+        case isTreadmill
     }
 
     /// Seconds per mile, 0 with under 10 m covered (the same rule a finished run uses).
@@ -46,6 +50,10 @@ struct RunDraft: Codable, Equatable {
         formatter.timeZone = calendar.timeZone
         formatter.dateFormat = "h:mm a"
         let clock = formatter.string(from: start).lowercased()
+        if isTreadmill {
+            let estimate = distanceMeters > 0 ? ", \u{2248} " + formatMiles(distanceMeters) + " mi" : ""
+            return "unfinished treadmill run from " + clock + ": " + formatDuration(movingSeconds) + estimate
+        }
         return "unfinished run from " + clock + ": " + formatMiles(distanceMeters) + " mi, " + formatDuration(movingSeconds)
     }
 
@@ -60,7 +68,8 @@ struct RunDraft: Codable, Equatable {
                          route: route,
                          averageCadence: averageCadence,
                          workoutName: workoutName,
-                         isTest: isTest)
+                         isTest: isTest,
+                         isTreadmill: isTreadmill)
     }
 
     func encoded() -> Data? {
@@ -84,6 +93,7 @@ extension RunDraft {
         cadenceSteps = try container.decode(Int.self, forKey: .cadenceSteps)
         workoutName = try container.decode(String.self, forKey: .workoutName)
         isTest = try container.decodeIfPresent(Bool.self, forKey: .isTest) ?? false
+        isTreadmill = try container.decodeIfPresent(Bool.self, forKey: .isTreadmill) ?? false
     }
 
     /// A finished run as a draft, for a run whose save failed: the recovery card then offers the whole run,
@@ -100,7 +110,8 @@ extension RunDraft {
                   route: summary.route,
                   cadenceSteps: steps,
                   workoutName: summary.workoutName ?? "",
-                  isTest: summary.isTest)
+                  isTest: summary.isTest,
+                  isTreadmill: summary.isTreadmill)
     }
 }
 

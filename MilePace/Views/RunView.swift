@@ -16,6 +16,7 @@ struct RunView: View {
     @AppStorage(SettingsKey.goalMile) private var goalMile: Double = AppSettings.defaultGoalMile
     @AppStorage(SettingsKey.runZone) private var zoneChoice: RunZoneTarget = .off
     @AppStorage(SettingsKey.runMode) private var runMode: RunMode = .free
+    @AppStorage(SettingsKey.runSurface) private var runSurface: RunSurface = .outdoor
     @AppStorage(SettingsKey.roadWorkoutName) private var workoutName: String = ""
     @AppStorage(SettingsKey.metronomeEnabled) private var metronomeEnabled: Bool = false
     @AppStorage(SettingsKey.voiceEnabled) private var voiceEnabled: Bool = true
@@ -37,6 +38,8 @@ struct RunView: View {
     @State private var confirmDraftDiscard: Bool = false
     /// The run that just ended could not be saved and waits in the draft card instead.
     @State private var draftSaveFailed: Bool = false
+    /// The treadmill distance typed on the unfinished-run card.
+    @State private var draftMilesText: String = ""
 
     init(isActive: Bool) {
         self.isActive = isActive
@@ -55,9 +58,28 @@ struct RunView: View {
         return Metronome.shared
     }
 
+    /// The treadmill is the setup's surface, so only timed workouts are offered on it.
+    private var onTreadmill: Bool {
+        return runSurface == .treadmill
+    }
+
+    private var workoutPresets: [RoadWorkoutSpec] {
+        let all = RoadWorkoutPresets.all
+        return onTreadmill ? TreadmillWorkouts.timeBased(all) : all
+    }
+
     private var selectedWorkout: RoadWorkoutSpec {
         let presets = RoadWorkoutPresets.all
         return presets.first(where: { $0.name == workoutName }) ?? presets[0]
+    }
+
+    /// The workout the setup would start, or nil for a free run. A saved distance workout does not
+    /// carry over to the treadmill.
+    private var chosenWorkout: RoadWorkoutSpec? {
+        guard runMode == .workout else { return nil }
+        let spec = selectedWorkout
+        if onTreadmill && !TreadmillWorkouts.isTimeBased(spec) { return nil }
+        return spec
     }
 
     private func repRange(for spec: RoadWorkoutSpec) -> ClosedRange<Double> {
@@ -91,7 +113,7 @@ struct RunView: View {
         .sheet(item: $summary) { item in
             RunSummaryView(summary: item,
                            isBusy: summaryBusy,
-                           onSave: { notes in save(item, notes: notes) },
+                           onSave: { notes, treadmillMeters in save(item, notes: notes, treadmillMeters: treadmillMeters) },
                            onDiscard: { discard() })
         }
         .onAppear {
@@ -114,6 +136,12 @@ struct RunView: View {
                 // Left the run screen without starting: forget the session the route opened.
                 store.discardActive()
             }
+        }
+        .onChange(of: runSurface) { _, _ in
+            if onTreadmill && runMode == .workout && chosenWorkout == nil {
+                runMode = .free
+            }
+            syncWarmup()
         }
         .onChange(of: PlanStore.shared.pendingRoute) { _, _ in
             applyPendingRoute()
@@ -154,7 +182,8 @@ struct RunView: View {
             runMode = .free
             zoneChoice = zone
         case .roadWorkout(let name):
-            if RoadWorkoutPresets.all.contains(where: { $0.name == name }) {
+            if let spec = RoadWorkoutPresets.all.first(where: { $0.name == name }),
+               !onTreadmill || TreadmillWorkouts.isTimeBased(spec) {
                 runMode = .workout
                 workoutName = name
             } else {
@@ -185,7 +214,8 @@ struct RunView: View {
     /// is being recorded. Everything else stops it.
     private func syncWarmup() {
         guard tracker.phase == .idle else { return }
-        if isActive && scenePhase == .active && summary == nil {
+        // A treadmill run never uses the GPS.
+        if isActive && scenePhase == .active && summary == nil && !onTreadmill {
             tracker.beginWarmup()
         } else {
             tracker.endWarmup()
@@ -208,7 +238,7 @@ struct RunView: View {
 
     /// "[ map ]" in the data view, "[ data ]" in the map view. Only while a run is active.
     private var viewAccessory: StatusAccessory? {
-        guard tracker.phase != .idle else { return nil }
+        guard tracker.phase != .idle, !tracker.isTreadmill else { return nil }
         let showingMap = viewMode == .map
         return StatusAccessory(title: showingMap ? "data" : "map",
                                action: { viewMode = viewMode.other })
@@ -236,7 +266,10 @@ struct RunView: View {
 
     private var activeCenter: String {
         if tracker.phase == .paused {
-            return "paused"
+            return tracker.autoPaused ? "auto-paused" : "paused"
+        }
+        if tracker.isTreadmill {
+            return "treadmill"
         }
         let rate = Diagnostics.shared.sampleRateHz
         var text = tracker.gpsState.label
@@ -247,6 +280,9 @@ struct RunView: View {
     }
 
     private var idleCenter: String {
+        if onTreadmill {
+            return "treadmill"
+        }
         return tracker.warmupTimedOut ? "gps paused" : tracker.gpsState.label
     }
 
@@ -266,6 +302,10 @@ struct RunView: View {
 
     private var modeOptions: [Choice<RunMode>] {
         return RunMode.allCases.map { Choice($0, $0.title.lowercased()) }
+    }
+
+    private var surfaceOptions: [Choice<RunSurface>] {
+        return RunSurface.allCases.map { Choice($0, $0.title.lowercased()) }
     }
 
     private var zoneOptions: [Choice<RunZoneTarget>] {
@@ -306,12 +346,14 @@ struct RunView: View {
 
     private var idleSetup: some View {
         VStack(alignment: .leading, spacing: 0) {
+            ChoiceRow(label: "surface", options: surfaceOptions, selection: $runSurface)
             ChoiceRow(label: "mode", options: modeOptions, selection: modeSelection)
             if runMode == .free {
                 freeRunOptions
             } else {
                 workoutOptions
             }
+            treadmillNote
             paceWindowRow
             metronomeSetup
             if let message = tracker.errorMessage {
@@ -328,7 +370,33 @@ struct RunView: View {
     private var freeRunOptions: some View {
         VStack(alignment: .leading, spacing: 0) {
             ChoiceRow(label: "pace guard", options: zoneOptions, selection: $zoneChoice)
-            ReadoutRow(key: "range /mi", value: guardRangeText)
+            if onTreadmill {
+                ReadoutRow(key: "range mph", value: guardSpeedText)
+            } else {
+                ReadoutRow(key: "range /mi", value: guardRangeText)
+            }
+        }
+    }
+
+    private var guardSpeedText: String {
+        guard let range = guardRange else { return "--" }
+        return TreadmillSpeed.rangeText(range)
+    }
+
+    /// Said once on the treadmill setup, and what a distance workout does there.
+    @ViewBuilder
+    private var treadmillNote: some View {
+        if onTreadmill {
+            Text(TreadmillSpeed.inclineNote)
+                .font(Theme.mono(.micro))
+                .foregroundStyle(Theme.dim)
+                .padding(.top, Theme.s2)
+            if !tracker.isAuthorized {
+                Text("allow location so cues keep working with the screen locked. gps isn't used on the treadmill.")
+                    .font(Theme.mono(.micro))
+                    .foregroundStyle(Theme.dim)
+                    .padding(.top, Theme.s1)
+            }
         }
     }
 
@@ -357,13 +425,19 @@ struct RunView: View {
                 .font(Theme.mono(.micro))
                 .foregroundStyle(Theme.dim)
                 .padding(.top, Theme.s2)
-            ForEach(RoadWorkoutPresets.all) { spec in
+            ForEach(workoutPresets) { spec in
                 workoutRow(spec)
             }
-            Text("warm up first, then start reps. target pace in /mi.")
+            Text(onTreadmill ? "warm up first, then start reps. target speed in mph." : "warm up first, then start reps. target pace in /mi.")
                 .font(Theme.mono(.micro))
                 .foregroundStyle(Theme.dim)
                 .padding(.top, Theme.s2)
+            if onTreadmill {
+                Text(TreadmillWorkouts.distanceNote)
+                    .font(Theme.mono(.micro))
+                    .foregroundStyle(Theme.dim)
+                    .padding(.top, Theme.s1)
+            }
         }
     }
 
@@ -376,7 +450,7 @@ struct RunView: View {
             workoutName = spec.name
         } label: {
             ReadoutRow(key: spec.name,
-                       value: ReadoutFormat.paceRange(repRange(for: spec)),
+                       value: onTreadmill ? TreadmillSpeed.rangeText(repRange(for: spec)) : ReadoutFormat.paceRange(repRange(for: spec)),
                        selected: selected,
                        leaders: false)
         }
@@ -399,7 +473,7 @@ struct RunView: View {
     /// Approximate location records no distance or pace, so say so before the run starts.
     @ViewBuilder
     private var preciseLocationWarning: some View {
-        if tracker.isAuthorized && tracker.accuracyReduced {
+        if !onTreadmill && tracker.isAuthorized && tracker.accuracyReduced {
             VStack(alignment: .leading, spacing: Theme.s2) {
                 Text("precise location is off. distance and pace won't record.")
                     .font(Theme.mono(.micro))
@@ -430,8 +504,12 @@ struct RunView: View {
                         .font(Theme.mono(.micro))
                         .fixedSize(horizontal: false, vertical: true)
                 }
+                treadmillDraftField(draft)
                 HStack(spacing: Theme.s2) {
-                    BracketButton(title: "save it", style: .outlineOnInverted, minHeight: 48) {
+                    BracketButton(title: "save it",
+                                  style: .outlineOnInverted,
+                                  minHeight: 48,
+                                  isEnabled: !draft.isTreadmill || draftTreadmillMeters(draft) != nil) {
                         saveDraft(draft)
                     }
                     BracketButton(title: confirmDraftDiscard ? "yes, discard" : "discard",
@@ -450,17 +528,34 @@ struct RunView: View {
         }
     }
 
+    /// A recovered treadmill run asks for the distance, prefilled by the pedometer's guess when it had one.
+    @ViewBuilder
+    private func treadmillDraftField(_ draft: RunDraft) -> some View {
+        if draft.isTreadmill {
+            TreadmillDraftField(text: $draftMilesText,
+                                placeholder: draft.distanceMeters > 0 ? formatMiles(draft.distanceMeters) : "0.00")
+        }
+    }
+
+    /// The distance for a recovered treadmill run: what was typed, else the pedometer's guess, else none.
+    private func draftTreadmillMeters(_ draft: RunDraft) -> Double? {
+        if let miles = InputParsing.addedMiles(draftMilesText) {
+            return miles * metersPerMile
+        }
+        return draft.distanceMeters > 0 ? draft.distanceMeters : nil
+    }
+
     @ViewBuilder
     private var startArea: some View {
         VStack(spacing: Theme.s2) {
-            if tracker.authorization == .notDetermined {
+            if !onTreadmill && tracker.authorization == .notDetermined {
                 Text("milepace needs your location to measure pace and distance.")
                     .font(Theme.mono(.micro))
                     .foregroundStyle(Theme.dim)
                 BracketButton(title: "allow location") {
                     tracker.requestAuthorization()
                 }
-            } else if tracker.isDenied {
+            } else if !onTreadmill && tracker.isDenied {
                 Text("location is off. turn on while using the app for milepace in settings.")
                     .font(Theme.mono(.micro))
                     .foregroundStyle(Theme.fg)
@@ -513,7 +608,9 @@ struct RunView: View {
     private var activeContent: some View {
         VStack(spacing: 0) {
             workoutBanner
-            if viewMode == .map {
+            if tracker.isTreadmill {
+                treadmillContent
+            } else if viewMode == .map {
                 mapContent
             } else {
                 dataContent
@@ -531,6 +628,50 @@ struct RunView: View {
             } else {
                 readoutScroll
             }
+        }
+    }
+
+    /// The treadmill view: the clock, the target as a treadmill speed, the pedometer's distance guess and cadence.
+    private var treadmillContent: some View {
+        VStack(spacing: 0) {
+            TreadmillTimeHero(elapsed: tracker.elapsed)
+            if diagnosticsVisible {
+                DiagnosticsPanel(onClose: { showDiagnostics = false })
+            } else {
+                treadmillScroll
+            }
+        }
+    }
+
+    private var treadmillScroll: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 0) {
+                treadmillTargetRow
+                TreadmillPedometerRow(meters: tracker.cadence.estimatedDistance)
+                Button {
+                    toggleMetronome()
+                } label: {
+                    ReadoutRow(key: "cadence", value: cadenceValue)
+                }
+                .buttonStyle(InstrumentButtonStyle())
+                cadenceMatchButton
+            }
+            .padding(.horizontal, Theme.s3)
+        }
+    }
+
+    /// Rep speed during a rep, easy speed in the other workout phases, the pace guard's zone on a free
+    /// run; nothing when there is no target.
+    @ViewBuilder
+    private var treadmillTargetRow: some View {
+        if let workout = tracker.workout {
+            if workout.isInRep {
+                ReadoutRow(key: "rep speed", value: TreadmillSpeed.rangeText(repRange(for: workout.spec)))
+            } else {
+                ReadoutRow(key: "easy speed", value: TreadmillSpeed.rangeText(zones.easy))
+            }
+        } else if let range = guardRange {
+            ReadoutRow(key: "target speed", value: TreadmillSpeed.rangeText(range))
         }
     }
 
@@ -566,7 +707,9 @@ struct RunView: View {
         case .warmup:
             return Banner(title: "warm-up", subtitle: "easy pace, then start reps")
         case .rep(let number):
-            let target = workout.spec.target.rawValue + " \u{00B7} " + ReadoutFormat.paceRange(repRange(for: workout.spec))
+            let range = repRange(for: workout.spec)
+            let targetText = tracker.isTreadmill ? TreadmillSpeed.rangeText(range) : ReadoutFormat.paceRange(range)
+            let target = workout.spec.target.rawValue + " \u{00B7} " + targetText
             return Banner(title: "rep \(number)/\(total)",
                           subtitle: target,
                           trailing: countdownText(for: workout),
@@ -664,7 +807,7 @@ struct RunView: View {
             audioToggles
             HStack(spacing: Theme.s2) {
                 workoutButton
-                pauseButton
+                pauseArea
             }
             HoldBar(title: "hold 3s to end",
                     duration: 3.0,
@@ -705,6 +848,18 @@ struct RunView: View {
             toggleMetronome()
         }
         .accessibilityLabel(MidRunAudioLabels.clickAccessibility(on: clickIsOn))
+    }
+
+    /// The pause button, with "auto-paused" over it when the run paused itself.
+    private var pauseArea: some View {
+        VStack(spacing: Theme.s1) {
+            if tracker.autoPaused {
+                Text("auto-paused")
+                    .font(Theme.mono(.micro))
+                    .foregroundStyle(Theme.dim)
+            }
+            pauseButton
+        }
     }
 
     private var pauseButton: some View {
@@ -756,7 +911,8 @@ struct RunView: View {
         }
         let freeRange = guardRange
         let interval = AppSettings.cueInterval
-        let spec: RoadWorkoutSpec? = runMode == .workout ? selectedWorkout : nil
+        let spec: RoadWorkoutSpec? = chosenWorkout
+        let surface = runSurface
         let targetRange: ClosedRange<Double>? = spec.map { repRange(for: $0) }
         let tracker = self.tracker
 
@@ -792,7 +948,10 @@ struct RunView: View {
                 Coach.shared.announceWorkoutEvent(event, spec: spec, repRange: targetRange)
             }
         }
-        tracker.start()
+        tracker.onTreadmillMinute = { minutes, spm in
+            Coach.shared.announceTreadmillMinutes(minutes, cadence: spm)
+        }
+        tracker.start(surface: surface)
 
         guard tracker.phase != .idle else { return }
         metronome.setBPM(metronomeBPM)
@@ -812,6 +971,7 @@ struct RunView: View {
         tracker.onTick = nil
         tracker.onDistanceCue = nil
         tracker.onWorkoutEvent = nil
+        tracker.onTreadmillMinute = nil
 
         let record = RunRecord(date: result.date,
                                distanceMeters: result.distanceMeters,
@@ -822,7 +982,8 @@ struct RunView: View {
                                route: result.route,
                                averageCadence: result.averageCadence ?? 0,
                                workoutName: result.workoutName ?? "",
-                               isTest: result.isTest)
+                               isTest: result.isTest,
+                               isTreadmill: result.isTreadmill)
         modelContext.insert(record)
         do {
             try modelContext.save()
@@ -840,8 +1001,11 @@ struct RunView: View {
             syncWarmup()
             return
         }
-        completedPlanIndex = store.completeActive(.run(miles: result.distanceMeters / metersPerMile,
-                                                       workoutName: result.workoutName))
+        // A treadmill run has no distance yet; it marks its plan session when the runner saves it.
+        if !result.isTreadmill {
+            completedPlanIndex = store.completeActive(.run(miles: result.distanceMeters / metersPerMile,
+                                                           workoutName: result.workoutName))
+        }
         savedRecord = record
         summaryBusy = false
         summary = result
@@ -904,8 +1068,16 @@ struct RunView: View {
 
     /// "[ save run ]": the run is already stored; this adds the notes and the pedometer's cadence for
     /// the whole run, then closes the sheet.
-    private func save(_ item: RunSummary, notes: String) {
+    private func save(_ item: RunSummary, notes: String, treadmillMeters: Double?) {
         guard !summaryBusy, let record = savedRecord else { return }
+        if item.isTreadmill {
+            // The typed distance is the run's distance; only now does the plan session get marked.
+            guard let meters = treadmillMeters, meters > 0 else { return }
+            record.distanceMeters = meters
+            record.averagePace = item.durationSeconds > 0 ? item.durationSeconds / meters * metersPerMile : 0
+            completedPlanIndex = store.completeActive(.run(miles: meters / metersPerMile,
+                                                           workoutName: item.workoutName))
+        }
         summaryBusy = true
         let cadence = tracker.cadence
         Task { @MainActor in
@@ -957,6 +1129,7 @@ struct RunView: View {
             pendingDraft = draft
         }
         if draft == nil {
+            draftMilesText = ""
             confirmDraftDiscard = false
             draftSaveFailed = false
         }
@@ -966,6 +1139,10 @@ struct RunView: View {
     @discardableResult
     private func saveDraft(_ draft: RunDraft) -> Bool {
         let record = draft.makeRecord()
+        if draft.isTreadmill, let meters = draftTreadmillMeters(draft) {
+            record.distanceMeters = meters
+            record.averagePace = draft.movingSeconds > 0 ? draft.movingSeconds / meters * metersPerMile : 0
+        }
         modelContext.insert(record)
         do {
             try modelContext.save()
@@ -979,6 +1156,7 @@ struct RunView: View {
         }
         RunDraftStore.clear()
         pendingDraft = nil
+        draftMilesText = ""
         confirmDraftDiscard = false
         draftSaveFailed = false
         return true
@@ -988,6 +1166,7 @@ struct RunView: View {
         if confirmDraftDiscard {
             RunDraftStore.clear()
             pendingDraft = nil
+            draftMilesText = ""
             confirmDraftDiscard = false
             draftSaveFailed = false
         } else {
@@ -1006,11 +1185,14 @@ struct RunView: View {
 struct RunSummaryView: View {
     let summary: RunSummary
     let isBusy: Bool
-    let onSave: (String) -> Void
+    /// Called with the notes and, for a treadmill run, the typed distance in meters.
+    let onSave: (String, Double?) -> Void
     let onDiscard: () -> Void
 
     @State private var notes: String = ""
     @State private var confirmDiscard: Bool = false
+    /// The treadmill distance in miles as typed; prefilled with the pedometer's guess.
+    @State private var milesText: String = ""
 
     var body: some View {
         VStack(spacing: 0) {
@@ -1021,6 +1203,7 @@ struct RunSummaryView: View {
                 VStack(alignment: .leading, spacing: 0) {
                     mapBlock
                     numbers
+                    treadmillBlock
                     splitsBlock
                     SectionHeader("notes")
                     BoxedField(placeholder: "how did it feel?", text: $notes)
@@ -1034,6 +1217,37 @@ struct RunSummaryView: View {
         }
         .instrumentScreen()
         .interactiveDismissDisabled()
+        .onAppear {
+            if summary.isTreadmill && milesText.isEmpty && summary.distanceMeters > 0 {
+                milesText = String(format: "%.2f", summary.distanceMeters / metersPerMile)
+            }
+        }
+    }
+
+    /// The treadmill distance in meters, when this is a treadmill run and a distance above 0 is typed.
+    private var treadmillMeters: Double? {
+        guard summary.isTreadmill, let miles = InputParsing.addedMiles(milesText) else { return nil }
+        return miles * metersPerMile
+    }
+
+    private var canSave: Bool {
+        return !isBusy && (!summary.isTreadmill || treadmillMeters != nil)
+    }
+
+    /// Average pace for the typed distance.
+    private var treadmillPace: Double? {
+        guard let meters = treadmillMeters, summary.durationSeconds > 0 else { return nil }
+        return summary.durationSeconds / meters * metersPerMile
+    }
+
+    @ViewBuilder
+    private var treadmillBlock: some View {
+        if summary.isTreadmill {
+            TreadmillDistanceEntry(text: $milesText,
+                                   averagePaceText: formatPace(secondsPerMile: treadmillPace),
+                                   needsValue: treadmillMeters == nil)
+                .padding(.top, Theme.s1)
+        }
     }
 
     @ViewBuilder
@@ -1050,9 +1264,13 @@ struct RunSummaryView: View {
             if let name = summary.workoutName {
                 ReadoutRow(key: "workout", value: name)
             }
-            ReadoutRow(key: "dist", value: "\(formatMiles(summary.distanceMeters)) mi")
+            if !summary.isTreadmill {
+                ReadoutRow(key: "dist", value: "\(formatMiles(summary.distanceMeters)) mi")
+            }
             ReadoutRow(key: "time", value: formatDuration(summary.durationSeconds))
-            ReadoutRow(key: "avg /mi", value: formatPace(secondsPerMile: summary.averagePace))
+            if !summary.isTreadmill {
+                ReadoutRow(key: "avg /mi", value: formatPace(secondsPerMile: summary.averagePace))
+            }
             if let cadence = summary.averageCadence, cadence > 0 {
                 ReadoutRow(key: "cadence", value: "\(Int(cadence.rounded())) spm")
             }
@@ -1080,8 +1298,8 @@ struct RunSummaryView: View {
 
     private var actions: some View {
         VStack(spacing: Theme.s2) {
-            BracketButton(title: "save run", style: .signal, isEnabled: !isBusy) {
-                onSave(notes)
+            BracketButton(title: "save run", style: .signal, isEnabled: canSave) {
+                onSave(notes, treadmillMeters)
             }
             BracketButton(title: confirmDiscard ? "yes, discard" : "discard",
                           style: confirmDiscard ? .inverted : .plain,

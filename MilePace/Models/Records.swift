@@ -19,6 +19,8 @@ final class RunRecord {
     var workoutName: String = ""
     /// True for a run made during the test week; those are deleted when the test week ends.
     var isTest: Bool = false
+    /// True for a run on a treadmill: no route, and the distance was typed in (or the pedometer's guess).
+    var isTreadmill: Bool = false
 
     init(date: Date,
          distanceMeters: Double,
@@ -29,7 +31,8 @@ final class RunRecord {
          route: [RoutePoint] = [],
          averageCadence: Double = 0,
          workoutName: String = "",
-         isTest: Bool = false) {
+         isTest: Bool = false,
+         isTreadmill: Bool = false) {
         self.date = date
         self.distanceMeters = distanceMeters
         self.durationSeconds = durationSeconds
@@ -40,6 +43,7 @@ final class RunRecord {
         self.averageCadence = averageCadence
         self.workoutName = workoutName
         self.isTest = isTest
+        self.isTreadmill = isTreadmill
     }
 
     var route: [RoutePoint] {

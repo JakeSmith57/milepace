@@ -99,7 +99,8 @@ struct HistoryView: View {
                       workoutName: run.workoutName,
                       notes: run.notes,
                       hasRoute: !run.routeData.isEmpty,
-                      isTest: run.isTest)
+                      isTest: run.isTest,
+                      isTreadmill: run.isTreadmill)
         }
     }
 
@@ -246,12 +247,25 @@ struct HistoryView: View {
     private func runRow(_ run: RunRecord) -> some View {
         let time = run.durationSeconds > 0 ? formatDuration(run.durationSeconds) : "--"
         return VStack(alignment: .leading, spacing: 0) {
-            if run.isTest {
-                PlanTag(text: "test")
-                    .padding(.top, Theme.s1)
-            }
+            runTags(run)
             ReadoutRow(key: ReadoutFormat.day(run.date),
                        value: formatMiles(run.distanceMeters) + "  " + time)
+        }
+    }
+
+    /// "test" and "treadmill" labels above a log row.
+    @ViewBuilder
+    private func runTags(_ run: RunRecord) -> some View {
+        if run.isTest || run.isTreadmill {
+            HStack(spacing: Theme.s1) {
+                if run.isTest {
+                    PlanTag(text: "test")
+                }
+                if run.isTreadmill {
+                    PlanTag(text: "treadmill")
+                }
+            }
+            .padding(.top, Theme.s1)
         }
     }
 
@@ -443,7 +457,7 @@ struct RunDetailView: View {
             backBar
             ScrollView {
                 VStack(alignment: .leading, spacing: 0) {
-                    if route.count >= 2 {
+                    if route.count >= 2 && !run.isTreadmill {
                         RunMapView(route: route, averagePace: run.averagePace)
                             .padding(.top, Theme.s2)
                     }
@@ -478,6 +492,9 @@ struct RunDetailView: View {
     private var numbers: some View {
         VStack(alignment: .leading, spacing: 0) {
             SectionHeader("run")
+            if run.isTreadmill {
+                ReadoutRow(key: "surface", value: "treadmill")
+            }
             ReadoutRow(key: "dist", value: formatMiles(run.distanceMeters) + " mi")
             if run.durationSeconds > 0 {
                 ReadoutRow(key: "time", value: formatDuration(run.durationSeconds))

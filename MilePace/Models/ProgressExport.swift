@@ -18,6 +18,8 @@ struct ExportRun: Equatable {
     let hasRoute: Bool
     /// Made during the test week. The builder leaves these out.
     var isTest: Bool = false
+    /// Made on a treadmill: the distance was typed in, and the splits column says "treadmill".
+    var isTreadmill: Bool = false
 }
 
 /// A saved track workout, reduced to what the export lists.
@@ -296,6 +298,9 @@ enum ProgressExport {
     }
 
     private static func splitsText(_ run: ExportRun) -> String {
+        if run.isTreadmill {
+            return "treadmill"
+        }
         if run.splits.isEmpty {
             return run.hasRoute ? "" : "manual"
         }

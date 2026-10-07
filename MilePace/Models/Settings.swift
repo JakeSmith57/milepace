@@ -35,6 +35,10 @@ enum SettingsKey {
     /// "yyyy-MM-dd" the test week started on; empty or missing when it is off. Not a view setting:
     /// `PlanStore` owns it, so starting and ending always clean up properly.
     static let testWeekStart = "testWeekStart"
+    /// Pause by itself when you stop moving on an outdoor run.
+    static let autoPause = "autoPause"
+    /// `RunSurface` raw value for the run screen's setup.
+    static let runSurface = "runSurface"
 }
 
 /// Light, dark or follow the system.
@@ -65,6 +69,21 @@ enum RunMode: String, CaseIterable, Identifiable {
         switch self {
         case .free: return "Free run"
         case .workout: return "Workout"
+        }
+    }
+}
+
+/// Where the run happens. A treadmill run needs no GPS and no location permission.
+enum RunSurface: String, CaseIterable, Identifiable {
+    case outdoor
+    case treadmill
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .outdoor: return "Outdoor"
+        case .treadmill: return "Treadmill"
         }
     }
 }
@@ -156,7 +175,9 @@ enum AppSettings {
             SettingsKey.paceWindow: defaultPaceWindow,
             SettingsKey.voiceIdentifier: "",
             SettingsKey.voiceRate: defaultVoiceRate,
-            SettingsKey.voiceEnabled: true
+            SettingsKey.voiceEnabled: true,
+            SettingsKey.autoPause: true,
+            SettingsKey.runSurface: RunSurface.outdoor.rawValue
         ])
     }
 
@@ -190,8 +211,18 @@ enum AppSettings {
     static var haptics: Bool { bool(SettingsKey.haptics, fallback: true) }
     /// False mutes every spoken cue (previews in the voice picker still play).
     static var voiceEnabled: Bool { bool(SettingsKey.voiceEnabled, fallback: true) }
+    /// Pause and resume by themselves on outdoor runs (never during reps or recoveries).
+    static var autoPause: Bool { bool(SettingsKey.autoPause, fallback: true) }
     static var metronomeEnabled: Bool { bool(SettingsKey.metronomeEnabled, fallback: false) }
     static var diagnosticsEnabled: Bool { bool(SettingsKey.diagnostics, fallback: false) }
+
+    static var runSurface: RunSurface {
+        if let raw = UserDefaults.standard.string(forKey: SettingsKey.runSurface),
+           let value = RunSurface(rawValue: raw) {
+            return value
+        }
+        return .outdoor
+    }
 
     static var cueInterval: CueInterval {
         if let raw = UserDefaults.standard.string(forKey: SettingsKey.cueInterval),

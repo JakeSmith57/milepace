@@ -220,6 +220,11 @@ final class Coach: NSObject, AVSpeechSynthesizerDelegate {
         speak(paused ? "Paused." : "Resumed.", reason: paused ? "pause" : "resume")
     }
 
+    /// Treadmill runs have no distance, so every 5 minutes says the time (and the cadence when known).
+    func announceTreadmillMinutes(_ minutes: Int, cadence: Double?) {
+        speak(TreadmillCue.spokenText(minutes: minutes, cadence: cadence), reason: "minutes \(minutes)")
+    }
+
     // MARK: Track announcements
 
     func announceRestCountdown(seconds: Int) {

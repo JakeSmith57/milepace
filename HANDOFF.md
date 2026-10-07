@@ -353,3 +353,27 @@ Most likely to need a compile fix: `TodayView.routineLinks` (`@ViewBuilder` with
 `RoutineDetailView` (`openURL` captured in a closure passed to a private subview).
 Field checks: open a routine from Today and from a session card, tick and reset, tap `[ video ]` and `[ videos ]` (YouTube app opens if
 installed), try `[ routines ]` while a run is recording (stays on run).
+
+## v1.14 part A: auto-pause and treadmill mode (PLAN-v14, sections 1 and 2)
+Written on Linux with no Swift toolchain, so **none of it has been compiled**; `main` (v1.13) is the last compiled state. Part B (sections 3 to 5) is not started.
+New files: `Models/AutoPause.swift` (`AutoPauseDetector`, pure), `Models/TreadmillSpeed.swift` (`TreadmillSpeed` mph/pace text, `TreadmillWorkouts` time-based filter,
+`TreadmillCue` 5-minute marks and spoken text), `Views/TreadmillRunViews.swift` (`TreadmillTimeHero`, `TreadmillPedometerRow`, `TreadmillDistanceEntry`, `TreadmillDraftField`).
+Tests: `AutoPauseTests`, `TreadmillSpeedTests` (also `TreadmillWorkoutTests`, `TreadmillCueTests`, `TreadmillDraftTests`).
+Settings: `SettingsKey.autoPause` / `runSurface` (registered defaults true / outdoor), `AppSettings.autoPause` / `runSurface`, `enum RunSurface` in `Settings.swift`, Set has a "run" section above "voice and feedback", status text v1.14.
+`LocationTracker`: `autoPaused`, `surface`, `isTreadmill`, `start(surface: RunSurface = .outdoor)` (treadmill skips the authorization guard, the warm-up seed, `startUpdatingLocation` and
+background location, and stops a running warm-up), `pause()`/`resume()` now call private `performPause(auto:)`/`performResume(auto:)` (log "state pause" / "state auto-pause" / "state resume" /
+"state auto-resume"), `autoPauseNow()`/`autoResumeNow()` also reset the zone and rep guards and call `Coach.announcePause`. `handle(_:)` calls `feedAutoPause(_:)` before its phase guard (so
+fixes while auto-paused reach the detector); auto-pause is skipped for treadmill, with the setting off, and in a rep or recovery (an auto-pause that is somehow still on then resumes). `startReps()` ends an
+auto-pause first. `tick()` calls `announceTreadmillMinuteIfDue()` (not over a rep or recovery) through `onTreadmillMinute`. `RunSummary.isTreadmill`; `stop()` uses the pedometer estimate as the distance on a
+treadmill. `CadenceTracker` got `distanceMeters` / `estimatedDistance` (pedometer distance with paused distance left out). `Coach.announceTreadmillMinutes`.
+Records: `RunRecord.isTreadmill` (default false), `RunDraft.isTreadmill` (decodes as false when missing), `ExportRun.isTreadmill` (splits column says "treadmill"), Log tag and detail (no map, "surface" row).
+Run screen: `surface` choice above `mode`; treadmill hides the GPS warning, location prompts and `[ map ]`, shows speeds in mph, offers only time-based workouts (a saved distance workout falls back to free mode); active
+treadmill view is `treadmillContent`; `pauseArea` shows "auto-paused" over the button and the status line says `auto-paused`. A treadmill run is inserted at once like any run (distance = pedometer guess or 0) but the plan
+session is only marked when `[ save run ]` stores the typed distance (`RunSummaryView.onSave` is now `(String, Double?)`); `[ save run ]` is disabled until the distance is above 0.
+Most likely to need a compile fix: `LocationTracker.start(surface:)` (the `guard phase == .idle, newSurface == .treadmill || isAuthorized`), `feedAutoPause` (`event == .pause` on an optional), `RunView.treadmillTargetRow`
+(nested if-let/else in a `@ViewBuilder`), `RunSummaryView` (new `@State`, `.onAppear`), `TreadmillDraftField` (`keyboardType` on a `TextField`).
+Known limits: a treadmill run has no location updates, so with the screen locked and the click off iOS may suspend the app (the clock stays right, the 5-minute voice marks come late); auto-pause pauses at the moment of detection, so
+the 5 stopped seconds still count as moving time; the pedometer distance is a stride guess.
+Field checks: run outdoors and stop at a light (pause after about 5 s, "Paused.", button says resume, status `auto-paused`; click goes quiet), walk off (resumes after 2 fixes), pause by hand and stand still (never resumes by itself),
+start reps while auto-paused; treadmill: no location prompt with permission denied, 10 minutes of voice marks, timed workout, end and type the distance, discard, kill the app mid-run and recover with a distance.
+v1.14 part A addendum: the "screen locked" limit above is fixed. With location authorized, a treadmill start runs coarse updates (`kCLLocationAccuracyThreeKilometers`, background on, indicator on) only to keep the app alive; `handle(_:)` returns at once while `surface == .treadmill && phase != .idle`. The outdoor path sets `kCLLocationAccuracyBest` before starting updates and `stop()` restores it. Unauthorized: the treadmill run still starts and the setup shows a micro note.

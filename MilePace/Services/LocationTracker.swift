@@ -26,6 +26,9 @@ struct RunSummary: Identifiable, Equatable {
     var cadencePlan: CadenceQueryPlan? = nil
     /// The run was made during the test week.
     var isTest: Bool = false
+    /// A treadmill run: `distanceMeters` is only the pedometer's estimate (0 without one), and the summary
+    /// asks the runner for the real distance.
+    var isTreadmill: Bool = false
 }
 
 @Observable
@@ -56,6 +59,14 @@ final class LocationTracker: NSObject, CLLocationManagerDelegate {
     /// The latest accepted fix, for the "you are here" marker. `CLLocationCoordinate2D` is not
     /// Equatable, so views must not compare it (use `liveRoute.count` or `distanceMeters` to react).
     private(set) var lastCoordinate: CLLocationCoordinate2D?
+    /// True while the run is paused by the auto-pause detector (a manual pause or resume clears it).
+    private(set) var autoPaused = false
+    /// Where the current (or last) run is happening. Fixed by `start(surface:)`.
+    private(set) var surface: RunSurface = .outdoor
+
+    var isTreadmill: Bool {
+        return surface == .treadmill
+    }
 
     /// Called on each completed mile: (mile number, split seconds, average pace seconds per mile).
     @ObservationIgnored var onMile: (@MainActor (Int, Double, Double?) -> Void)?
@@ -65,6 +76,8 @@ final class LocationTracker: NSObject, CLLocationManagerDelegate {
     @ObservationIgnored var onDistanceCue: (@MainActor (DistanceCue) -> Void)?
     /// Called for each guided-workout event.
     @ObservationIgnored var onWorkoutEvent: (@MainActor (RoadWorkoutSession.Event) -> Void)?
+    /// Called on a treadmill run at each 5 minute mark: (minutes, current cadence in steps per minute).
+    @ObservationIgnored var onTreadmillMinute: (@MainActor (Int, Double?) -> Void)?
 
     @ObservationIgnored private let manager: CLLocationManager
     @ObservationIgnored private var calculator = PaceCalculator()
@@ -85,6 +98,10 @@ final class LocationTracker: NSObject, CLLocationManagerDelegate {
     @ObservationIgnored private var warmupStartedAt: Date?
     /// Latest fix with a valid accuracy, from warm-up or a run.
     @ObservationIgnored private var lastFix: PaceSample?
+    /// Decides auto-pause and auto-resume from the Doppler speed of incoming fixes.
+    @ObservationIgnored private var autoPauseDetector = AutoPauseDetector()
+    /// The last treadmill minute mark that was announced.
+    @ObservationIgnored private var lastMinuteMark = 0
 
     /// Idle warm-up stops by itself after this many seconds to save battery.
     static let warmupTimeoutSeconds: Double = 180
@@ -182,7 +199,7 @@ final class LocationTracker: NSObject, CLLocationManagerDelegate {
 
     private func refreshGPS() {
         let state: GPSState
-        if phase == .idle && !warmupActive {
+        if (phase == .idle && !warmupActive) || (phase != .idle && surface == .treadmill) {
             state = .off
         } else {
             let age = lastFix.map { Date().timeIntervalSince($0.timestamp) }
@@ -196,10 +213,19 @@ final class LocationTracker: NSObject, CLLocationManagerDelegate {
 
     // MARK: Run control
 
-    func start() {
-        guard phase == .idle, isAuthorized else { return }
+    /// Starts a run. A treadmill run needs no location permission and never uses GPS.
+    func start(surface newSurface: RunSurface = .outdoor) {
+        guard phase == .idle, newSurface == .treadmill || isAuthorized else { return }
         let now = Date()
-        let seed = warmupSeed(at: now)
+        let treadmill = newSurface == .treadmill
+        let seed = treadmill ? nil : warmupSeed(at: now)
+        if treadmill && warmupActive {
+            stopWarmupUpdates(note: "warm-up end (treadmill)")
+        }
+        surface = newSurface
+        autoPaused = false
+        autoPauseDetector.reset()
+        lastMinuteMark = 0
         calculator = PaceCalculator()
         calculator.start(at: now)
         startedAt = now
@@ -235,15 +261,30 @@ final class LocationTracker: NSObject, CLLocationManagerDelegate {
             lastCoordinate = CLLocationCoordinate2D(latitude: seed.latitude, longitude: seed.longitude)
         }
 
-        cueTracker = AppSettings.cueInterval.meters.map { DistanceCueTracker(intervalMeters: $0) }
+        cueTracker = treadmill ? nil : AppSettings.cueInterval.meters.map { DistanceCueTracker(intervalMeters: $0) }
         cueTracker?.update(distance: 0, elapsed: 0)
         cadence.start(at: now)
 
-        // Only valid once authorized, and the Info.plist declares the location background mode.
-        manager.allowsBackgroundLocationUpdates = true
-        manager.showsBackgroundLocationIndicator = true
-        if !warmupActive {
-            manager.startUpdatingLocation()
+        if treadmill {
+            // No GPS on a treadmill. Coarse updates only keep the app alive with the screen locked
+            // (voice cues, clock); `handle(_:)` ignores every sample. Without permission the run still starts.
+            if isAuthorized {
+                manager.desiredAccuracy = kCLLocationAccuracyThreeKilometers
+                manager.distanceFilter = kCLDistanceFilterNone
+                manager.pausesLocationUpdatesAutomatically = false
+                manager.allowsBackgroundLocationUpdates = true
+                manager.showsBackgroundLocationIndicator = true
+                manager.startUpdatingLocation()
+            }
+        } else {
+            // A treadmill run may have left the accuracy lowered.
+            manager.desiredAccuracy = kCLLocationAccuracyBest
+            // Only valid once authorized, and the Info.plist declares the location background mode.
+            manager.allowsBackgroundLocationUpdates = true
+            manager.showsBackgroundLocationIndicator = true
+            if !warmupActive {
+                manager.startUpdatingLocation()
+            }
         }
         // After a warm-up the updates keep running (no restart); they now belong to the run.
         warmupActive = false
@@ -255,28 +296,59 @@ final class LocationTracker: NSObject, CLLocationManagerDelegate {
         refreshGPS()
     }
 
+    /// A manual pause. It is never undone by auto-resume.
     func pause() {
         guard phase == .running else { return }
+        performPause(auto: false)
+    }
+
+    /// A manual resume, also for an auto-pause the runner does not want to wait out.
+    func resume() {
+        guard phase == .paused else { return }
+        performResume(auto: false)
+    }
+
+    private func performPause(auto: Bool) {
         let now = Date()
         calculator.pause(at: now)
         cadence.pause(at: now)
         currentPace = nil
         paceUpdatedAt = nil
+        autoPaused = auto
+        autoPauseDetector.reset()
         phase = .paused
         refreshClock()
-        Diagnostics.shared.log(.state, "state pause")
+        Diagnostics.shared.log(.state, auto ? "state auto-pause" : "state pause")
     }
 
-    func resume() {
-        guard phase == .paused else { return }
+    private func performResume(auto: Bool) {
         let now = Date()
         calculator.resume(at: now)
         cadence.resume(at: now)
         paceUpdatedAt = nil
         currentPace = nil
+        autoPaused = false
+        autoPauseDetector.reset()
         phase = .running
         refreshClock()
-        Diagnostics.shared.log(.state, "state resume")
+        Diagnostics.shared.log(.state, auto ? "state auto-resume" : "state resume")
+    }
+
+    private func autoPauseNow() {
+        guard phase == .running else { return }
+        performPause(auto: true)
+        // A pause starts the pace guards from scratch, as the pause button does.
+        Coach.shared.resetZoneGuard()
+        Coach.shared.resetRepGuard()
+        Coach.shared.announcePause(paused: true)
+    }
+
+    private func autoResumeNow() {
+        guard phase == .paused, autoPaused else { return }
+        performResume(auto: true)
+        Coach.shared.resetZoneGuard()
+        Coach.shared.resetRepGuard()
+        Coach.shared.announcePause(paused: false)
     }
 
     /// Stops tracking and returns the run's summary.
@@ -288,7 +360,9 @@ final class LocationTracker: NSObject, CLLocationManagerDelegate {
             cadence.resume(at: now)
         }
         let duration = calculator.elapsed(at: now)
-        let distance = calculator.totalDistance
+        let treadmill = surface == .treadmill
+        // A treadmill has no GPS distance: the pedometer's guess is only a starting point for the runner.
+        let distance = treadmill ? (cadence.estimatedDistance ?? 0) : calculator.totalDistance
         let average = distance >= 10 ? duration / distance * metersPerMile : 0
         let summary = RunSummary(date: startedAt,
                                  distanceMeters: distance,
@@ -299,16 +373,20 @@ final class LocationTracker: NSObject, CLLocationManagerDelegate {
                                  averageCadence: cadence.averageSPM(movingSeconds: duration),
                                  route: calculator.route,
                                  cadencePlan: cadence.queryPlan(runStart: startedAt, end: now),
-                                 isTest: startedAsTest)
+                                 isTest: startedAsTest,
+                                 isTreadmill: treadmill)
 
         cadence.stop()
         cueTracker = nil
         workout = nil
         manager.stopUpdatingLocation()
+        manager.desiredAccuracy = kCLLocationAccuracyBest
         manager.allowsBackgroundLocationUpdates = false
         manager.showsBackgroundLocationIndicator = false
         stopTimer()
         phase = .idle
+        autoPaused = false
+        autoPauseDetector.reset()
         warmupActive = false
         warmupWanted = false
         warmupStartedAt = nil
@@ -332,6 +410,8 @@ final class LocationTracker: NSObject, CLLocationManagerDelegate {
         paceUpdatedAt = nil
         cueTracker = nil
         workout = nil
+        autoPaused = false
+        autoPauseDetector.reset()
         cadence.reset()
     }
 
@@ -340,14 +420,16 @@ final class LocationTracker: NSObject, CLLocationManagerDelegate {
     /// The run so far as a draft, or nil when no run is going.
     func draftSnapshot(now: Date = Date()) -> RunDraft? {
         guard phase != .idle else { return nil }
+        let treadmill = surface == .treadmill
         return RunDraft(start: startedAt,
-                        distanceMeters: calculator.totalDistance,
+                        distanceMeters: treadmill ? (cadence.estimatedDistance ?? 0) : calculator.totalDistance,
                         movingSeconds: calculator.elapsed(at: now),
                         splits: calculator.splits,
                         route: calculator.route,
                         cadenceSteps: cadence.movingSteps,
                         workoutName: workout?.spec.name ?? "",
-                        isTest: startedAsTest)
+                        isTest: startedAsTest,
+                        isTreadmill: treadmill)
     }
 
     /// Writes the draft now (the app is going to the background).
@@ -379,6 +461,10 @@ final class LocationTracker: NSObject, CLLocationManagerDelegate {
     /// Ends the warm-up and starts rep 1.
     func startReps() {
         guard phase != .idle else { return }
+        // Reps never run auto-paused: the runner tapped start, so the clock runs.
+        if autoPaused {
+            autoResumeNow()
+        }
         let events = workout?.startReps(elapsed: calculator.elapsed(at: Date()),
                                         distance: calculator.totalDistance) ?? []
         forward(events)
@@ -438,7 +524,17 @@ final class LocationTracker: NSObject, CLLocationManagerDelegate {
         checkpointIfDue()
         let events = workout?.update(elapsed: elapsed, distance: calculator.totalDistance) ?? []
         forward(events)
+        announceTreadmillMinuteIfDue()
         onTick?(currentPace)
+    }
+
+    /// Treadmill runs say the time every 5 minutes, but not over a rep or a recovery.
+    private func announceTreadmillMinuteIfDue() {
+        guard surface == .treadmill else { return }
+        guard let mark = TreadmillCue.newMark(elapsed: elapsed, lastMark: lastMinuteMark) else { return }
+        lastMinuteMark = mark
+        if workout?.isInRepOrRecovery ?? false { return }
+        onTreadmillMinute?(mark, cadence.currentSPM)
     }
 
     /// One-second tick while idle: warm-up timeout and GPS status.
@@ -456,6 +552,8 @@ final class LocationTracker: NSObject, CLLocationManagerDelegate {
     }
 
     private func handle(_ samples: [PaceSample]) {
+        // A treadmill run's location updates only keep the app alive: no calculator, auto-pause, route or GPS status.
+        if surface == .treadmill && phase != .idle { return }
         let diagnostics = Diagnostics.shared
         for sample in samples {
             diagnostics.noteFix(sample)
@@ -464,6 +562,7 @@ final class LocationTracker: NSObject, CLLocationManagerDelegate {
             }
         }
         refreshGPS()
+        feedAutoPause(samples)
 
         guard phase == .running else {
             // Warm-up fixes (and fixes while paused) never reach the run calculator.
@@ -520,6 +619,32 @@ final class LocationTracker: NSObject, CLLocationManagerDelegate {
 
         if let stamp = samples.last?.timestamp {
             advanceProgress(at: stamp)
+        }
+    }
+
+    /// Auto-pause only on outdoor runs with the setting on, and never while a workout is in a rep or a
+    /// recovery (an auto-pause that somehow got into one ends at once).
+    private func feedAutoPause(_ samples: [PaceSample]) {
+        guard surface == .outdoor else { return }
+        if workout?.isInRepOrRecovery ?? false {
+            if phase == .paused && autoPaused {
+                autoResumeNow()
+            }
+            return
+        }
+        guard AppSettings.autoPause else { return }
+        for sample in samples {
+            let waitingToResume = phase == .paused && autoPaused
+            guard phase == .running || waitingToResume else { return }
+            let event = autoPauseDetector.update(speed: sample.speed,
+                                                 speedAccuracy: sample.speedAccuracy,
+                                                 at: sample.timestamp,
+                                                 paused: waitingToResume)
+            if event == .pause {
+                autoPauseNow()
+            } else if event == .resume {
+                autoResumeNow()
+            }
         }
     }
 
