@@ -1,0 +1,126 @@
+{
+  "version": 1,
+  "home": "17 Monitor St, Brooklyn, NY 11222",
+  "routes": [
+    {
+      "id": "mcgolrick-loop",
+      "name": "mcgolrick park loop",
+      "shape": "loop",
+      "start": "home",
+      "waypoints": [
+        { "query": "Monitor St & Nassau Ave, Brooklyn, NY", "kind": "address" },
+        { "query": "Russell St & Nassau Ave, Brooklyn, NY", "kind": "address" },
+        { "query": "Russell St & Driggs Ave, Brooklyn, NY", "kind": "address" },
+        { "query": "Monitor St & Driggs Ave, Brooklyn, NY", "kind": "address" }
+      ],
+      "tags": ["easy", "strides", "short"],
+      "notes": "the park at your door. a short loop to repeat, or to finish a run with strides."
+    },
+    {
+      "id": "mccarren-track",
+      "name": "mccarren park track",
+      "shape": "track",
+      "start": "home",
+      "waypoints": [
+        { "query": "McCarren Park Track, Brooklyn, NY", "kind": "place" }
+      ],
+      "tags": ["track", "timeTrial", "race", "strides"],
+      "notes": "400 m around the turf field, entrance near driggs ave & lorimer st. open dawn to dusk, free. share lanes and yield to scheduled school and community programs. lane 1 is 400 m; each lane further out adds about 7-8 m a lap. the jog over (about 0.6 mi on driggs ave) is a good start to your warm-up."
+    },
+    {
+      "id": "mccarren-loop",
+      "name": "mccarren park loop",
+      "shape": "loop",
+      "start": "home",
+      "waypoints": [
+        { "query": "Driggs Ave & Lorimer St, Brooklyn, NY", "kind": "address" },
+        { "query": "Lorimer St & Bayard St, Brooklyn, NY", "kind": "address" },
+        { "query": "Leonard St & Bayard St, Brooklyn, NY", "kind": "address" },
+        { "query": "Manhattan Ave & Driggs Ave, Brooklyn, NY", "kind": "address" }
+      ],
+      "tags": ["easy", "threshold", "strides"],
+      "notes": "home to mccarren and around its main block. flat, few crossings once you're at the park, good for timed threshold reps."
+    },
+    {
+      "id": "transmitter",
+      "name": "transmitter park out-and-back",
+      "shape": "outAndBack",
+      "start": "home",
+      "waypoints": [
+        { "query": "Transmitter Park, Brooklyn, NY", "kind": "place" }
+      ],
+      "tags": ["easy"],
+      "notes": "west across greenpoint to the river and the manhattan skyline. sidewalks with lights; watch the crossings on mcguinness blvd and manhattan ave."
+    },
+    {
+      "id": "nature-walk",
+      "name": "newtown creek nature walk",
+      "shape": "outAndBack",
+      "start": "home",
+      "waypoints": [
+        { "query": "Newtown Creek Nature Walk, Brooklyn, NY", "kind": "place" }
+      ],
+      "tags": ["easy", "short"],
+      "notes": "short creekside path by the wastewater plant's domes, north of home. industrial streets on the way; daylight is best."
+    },
+    {
+      "id": "waterfront",
+      "name": "waterfront to domino park",
+      "shape": "outAndBack",
+      "start": "home",
+      "waypoints": [
+        { "query": "Bushwick Inlet Park, Brooklyn, NY", "kind": "place" },
+        { "query": "Domino Park, Brooklyn, NY", "kind": "place" }
+      ],
+      "tags": ["easy", "long"],
+      "notes": "flat, river views. busy with walkers and bikes midday; go early morning or early evening."
+    },
+    {
+      "id": "nyrr-north-bk",
+      "name": "north brooklyn & queens (nyrr)",
+      "shape": "oneWay",
+      "start": "home",
+      "waypoints": [
+        { "query": "McCarren Park, Brooklyn, NY", "kind": "place" },
+        { "query": "Transmitter Park, Brooklyn, NY", "kind": "place" },
+        { "query": "Pulaski Bridge, Brooklyn, NY", "kind": "place" },
+        { "query": "Gantry Plaza State Park, Queens, NY", "kind": "place" }
+      ],
+      "tags": ["long"],
+      "notes": "based on nyrr's north brooklyn & queens route: over the pulaski bridge to the long island city waterfront. one way; take the g or 7 back, or turn around early. early morning or early evening is quietest."
+    },
+    {
+      "id": "cooper-park",
+      "name": "cooper park out-and-back",
+      "shape": "outAndBack",
+      "start": "home",
+      "waypoints": [
+        { "query": "Cooper Park, Brooklyn, NY", "kind": "place" }
+      ],
+      "tags": ["easy"],
+      "notes": "southeast into east williamsburg; crosses meeker ave under the bqe, so take the lights."
+    },
+    {
+      "id": "kosciuszko",
+      "name": "kosciuszko bridge out-and-back",
+      "shape": "outAndBack",
+      "start": "home",
+      "waypoints": [
+        { "query": "Kosciuszko Bridge, Brooklyn, NY", "kind": "place" }
+      ],
+      "tags": ["hills"],
+      "notes": "a long steady climb over newtown creek on the bridge's walking and bike path. for hill work in later phases. the approaches are industrial with truck traffic; daylight only, and check the path on the map before you go."
+    },
+    {
+      "id": "wburg-bridge",
+      "name": "williamsburg bridge out-and-back",
+      "shape": "outAndBack",
+      "start": "home",
+      "waypoints": [
+        { "query": "Williamsburg Bridge, Brooklyn, NY", "kind": "place" }
+      ],
+      "tags": ["hills", "long"],
+      "notes": "south through williamsburg to the bridge's pedestrian path: a real hill each way. turn at the top or cross to manhattan for more miles."
+    }
+  ]
+}

@@ -20,6 +20,7 @@ struct TodayView: View {
 
     @Query private var runs: [RunRecord]
     @Query private var workouts: [WorkoutRecord]
+    @Query private var savedRoutes: [SavedRoute]
 
     @Environment(\.scenePhase) private var scenePhase
 
@@ -260,8 +261,13 @@ struct TodayView: View {
                     openTrackList()
                 }
             }
-            BracketButton(title: "routines") {
-                store.open(.routines)
+            HStack(spacing: Theme.s2) {
+                BracketButton(title: "routines") {
+                    store.open(.routines)
+                }
+                BracketButton(title: "routes") {
+                    store.open(.routes)
+                }
             }
         }
     }
@@ -424,9 +430,10 @@ struct TodayView: View {
                 .fixedSize(horizontal: false, vertical: true)
             detailLines(session)
             BracketButton(title: startTitle(session), style: .inverted) {
-                store.start(index)
+                startSession(index, session)
             }
             .padding(.top, Theme.s2)
+            whereLine(session)
             HStack(spacing: Theme.s3) {
                 TextBracketButton(title: "mark done", color: Theme.onSignal) {
                     store.markDone(index)
@@ -442,6 +449,65 @@ struct TodayView: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(Theme.s3)
         .background(Theme.plan)
+    }
+
+    // MARK: Where
+
+    /// Resolved curated routes by id, in miles: the routes that have a saved path.
+    private var resolvedMiles: [String: Double] {
+        var found: [String: Double] = [:]
+        for route in savedRoutes where route.kind == SavedRouteKind.curated.rawValue && !route.pointsData.isEmpty {
+            found[route.id] = route.distanceMeters / metersPerMile
+        }
+        return found
+    }
+
+    /// True for a road session whose workout is timed (reps by the clock, not by distance).
+    private func isTimedRoadWorkout(_ session: PlanSession) -> Bool {
+        guard session.kind == .road, let name = session.preset,
+              let spec = RoadWorkoutPresets.all.first(where: { $0.name == name }) else {
+            return false
+        }
+        return TreadmillWorkouts.isTimeBased(spec)
+    }
+
+    /// Where today's session should happen, from the plan and the routes resolved so far.
+    private func recommendation(for session: PlanSession) -> RouteRecommendation.Pick? {
+        guard let catalog = RouteCatalogLoader.bundled else { return nil }
+        let home = RouteHome.point
+        let sun = SolarTimes.times(on: Date(),
+                                   latitude: home.lat,
+                                   longitude: home.lon,
+                                   timeZone: PlanCalendar.local.timeZone)
+        return RouteRecommendation.pick(kind: session.kind,
+                                        plannedMiles: session.miles,
+                                        isTimedRoadWorkout: isTimedRoadWorkout(session),
+                                        now: Date(),
+                                        sunrise: sun?.sunrise,
+                                        sunset: sun?.sunset,
+                                        resolved: resolvedMiles,
+                                        catalog: catalog)
+    }
+
+    @ViewBuilder
+    private func whereLine(_ session: PlanSession) -> some View {
+        if let pick = recommendation(for: session) {
+            TodayWhereLine(pick: pick)
+        }
+    }
+
+    /// `[ start ]`: the same as before, and for an outdoor run session also picks the recommended route
+    /// when it has a saved path and no route was chosen already.
+    private func startSession(_ index: Int, _ session: PlanSession) {
+        store.start(index)
+        guard session.isRunTabSession,
+              AppSettings.runSurface == .outdoor,
+              store.selectedRouteId == nil,
+              let id = recommendation(for: session)?.routeId,
+              resolvedMiles[id] != nil else {
+            return
+        }
+        store.selectedRouteId = id
     }
 
     /// "[ warm-up ]" and, for workouts, "[ cool-down ]": opens the matching routine as a sheet.

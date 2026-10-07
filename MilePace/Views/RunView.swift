@@ -12,6 +12,8 @@ struct RunView: View {
     @Environment(\.modelContext) private var modelContext
     @Environment(\.scenePhase) private var scenePhase
 
+    @Query private var savedRoutes: [SavedRoute]
+
     @AppStorage(SettingsKey.mileTime) private var mileTime: Double = AppSettings.defaultMileTime
     @AppStorage(SettingsKey.goalMile) private var goalMile: Double = AppSettings.defaultGoalMile
     @AppStorage(SettingsKey.runZone) private var zoneChoice: RunZoneTarget = .off
@@ -43,6 +45,8 @@ struct RunView: View {
     @State private var draftSaveFailed: Bool = false
     /// The treadmill distance typed on the unfinished-run card.
     @State private var draftMilesText: String = ""
+    /// The route this run follows, loaded when it starts (outdoor runs with a route selected).
+    @State private var followed: FollowedRoute? = nil
 
     init(isActive: Bool) {
         self.isActive = isActive
@@ -359,6 +363,7 @@ struct RunView: View {
             } else {
                 workoutOptions
             }
+            routeRow
             treadmillNote
             paceWindowRow
             metronomeSetup
@@ -371,6 +376,28 @@ struct RunView: View {
         }
         .padding(.horizontal, Theme.s3)
         .padding(.bottom, Theme.s3)
+    }
+
+    /// "route: none >" opens the routes screen; with a route chosen it shows the name. Outdoor only.
+    @ViewBuilder
+    private var routeRow: some View {
+        if !onTreadmill {
+            Button {
+                store.open(.routes)
+            } label: {
+                ReadoutRow(key: "route", value: selectedRouteName + " >", leaders: false)
+            }
+            .buttonStyle(InstrumentButtonStyle())
+        }
+    }
+
+    /// The chosen route's name, or "none".
+    private var selectedRouteName: String {
+        guard let id = store.selectedRouteId else { return "none" }
+        if let name = RouteCatalogLoader.bundled?.name(forId: id) {
+            return name
+        }
+        return savedRoutes.first(where: { $0.id == id })?.name ?? id
     }
 
     private var freeRunOptions: some View {
@@ -685,7 +712,9 @@ struct RunView: View {
     private var mapContent: some View {
         VStack(spacing: 0) {
             ZStack {
-                LiveRunMapView(route: tracker.liveRoute, lastCoordinate: tracker.lastCoordinate)
+                LiveRunMapView(route: tracker.liveRoute,
+                               lastCoordinate: tracker.lastCoordinate,
+                               plannedRoute: followed?.points ?? [])
                 if diagnosticsVisible {
                     DiagnosticsPanel(onClose: { showDiagnostics = false })
                 }
@@ -760,6 +789,7 @@ struct RunView: View {
                 ReadoutRow(key: "avg", value: formatPace(secondsPerMile: tracker.averagePace))
                 ReadoutRow(key: "dist", value: "\(formatMiles(tracker.distanceMeters)) mi")
                 ReadoutRow(key: "time", value: formatDuration(tracker.elapsed))
+                followRow
                 Button {
                     toggleMetronome()
                 } label: {
@@ -770,6 +800,14 @@ struct RunView: View {
                 splitsTape
             }
             .padding(.horizontal, Theme.s3)
+        }
+    }
+
+    @ViewBuilder
+    private var followRow: some View {
+        if let route = followed {
+            RouteFollowRow(followed: route, liveRoute: tracker.liveRoute)
+                .id(route.id)
         }
     }
 
@@ -915,6 +953,7 @@ struct RunView: View {
         if let draft = pendingDraft, !saveDraft(draft) {
             return
         }
+        loadFollowedRoute()
         let freeRange = guardRange
         let interval = AppSettings.cueInterval
         let spec: RoadWorkoutSpec? = chosenWorkout
@@ -967,6 +1006,18 @@ struct RunView: View {
         }
     }
 
+    /// Reads the chosen route's saved path for an outdoor run; nothing on the treadmill or without a route.
+    private func loadFollowedRoute() {
+        guard !onTreadmill,
+              let id = store.selectedRouteId,
+              let saved = savedRoutes.first(where: { $0.id == id }),
+              !saved.pointsData.isEmpty else {
+            followed = nil
+            return
+        }
+        followed = FollowedRoute(id: id, points: saved.points, meters: saved.distanceMeters)
+    }
+
     /// Stopping saves the run at once, then shows it. Nothing the runner does on the summary sheet can
     /// lose it: save only adds notes, and discard asks twice.
     private func endRun() {
@@ -989,7 +1040,8 @@ struct RunView: View {
                                averageCadence: result.averageCadence ?? 0,
                                workoutName: result.workoutName ?? "",
                                isTest: result.isTest,
-                               isTreadmill: result.isTreadmill)
+                               isTreadmill: result.isTreadmill,
+                               routeId: result.isTreadmill ? "" : (followed?.id ?? ""))
         let history = mileHistory(for: result)
         modelContext.insert(record)
         do {
@@ -1003,6 +1055,8 @@ struct RunView: View {
             modelContext.rollback()
             RunDraftStore.save(RunDraft(summary: result))
             draftSaveFailed = true
+            followed = nil
+            store.selectedRouteId = nil
             tracker.reset()
             reloadDraft()
             syncWarmup()
@@ -1173,6 +1227,11 @@ struct RunView: View {
     }
 
     private func closeSummary() {
+        if let route = followed {
+            RouteResolver.shared.markUsed(id: route.id)
+        }
+        followed = nil
+        store.selectedRouteId = nil
         summary = nil
         savedRecord = nil
         newBestMile = nil

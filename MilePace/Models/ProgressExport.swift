@@ -24,6 +24,8 @@ struct ExportRun: Equatable {
     var effort: Int = 0
     /// Foot pain 0 to 10 after the run; -1 when not set.
     var footPain: Int = -1
+    /// Name of the route the run followed; empty when none.
+    var routeName: String = ""
 }
 
 /// A saved track workout, reduced to what the export lists.
@@ -294,15 +296,20 @@ enum ProgressExport {
         if showFeel {
             names.append("feel")
         }
+        // The "route" column only appears once any run followed a route.
+        let showRoute = context.runs.contains { !$0.routeName.isEmpty }
+        if showRoute {
+            names.append("route")
+        }
         names.append("notes")
         lines.append(contentsOf: tableHead(names))
         for run in context.runs {
-            lines.append(runRow(run, context: context, showFeel: showFeel))
+            lines.append(runRow(run, context: context, showFeel: showFeel, showRoute: showRoute))
         }
         return lines
     }
 
-    private static func runRow(_ run: ExportRun, context: ExportContext, showFeel: Bool) -> String {
+    private static func runRow(_ run: ExportRun, context: ExportContext, showFeel: Bool, showRoute: Bool) -> String {
         let time = run.durationSeconds > 0 ? formatDuration(run.durationSeconds) : ""
         let cadence = run.averageCadence > 0 ? "\(Int(run.averageCadence.rounded())) spm" : ""
         let workout = run.workoutName.isEmpty ? "free" : run.workoutName
@@ -315,6 +322,9 @@ enum ProgressExport {
                      splitsText(run)]
         if showFeel {
             cells.append(FeelText.exportText(effort: run.effort, footPain: run.footPain) ?? "")
+        }
+        if showRoute {
+            cells.append(run.routeName)
         }
         cells.append(run.notes)
         return row(cells)

@@ -106,6 +106,9 @@ final class PlanStore {
     /// Set by `open(_:)`, `goHome()` and a tapped reminder; `ContentView` switches to it and clears it. A
     /// request to leave a run or track session that is being recorded is ignored there.
     var requestedTab: AppTab? = nil
+    /// The route the next outdoor run follows (a catalog id or a `SavedRoute.id`). Set by `[ use for
+    /// today's run ]` or by Today's `[ start ]`; cleared when the run is saved or discarded. Never saved to disk.
+    var selectedRouteId: String? = nil
 
     private init() {
         let loaded = PlanLoader.load(bundle: Bundle.main)

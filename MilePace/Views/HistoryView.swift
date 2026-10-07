@@ -6,6 +6,7 @@ import Charts
 struct HistoryView: View {
     @Query(sort: \RunRecord.date, order: .reverse) private var runs: [RunRecord]
     @Query(sort: \WorkoutRecord.date, order: .reverse) private var workouts: [WorkoutRecord]
+    @Query private var savedRoutes: [SavedRoute]
 
     @State private var showingAdd = false
     /// The export file waiting in the share sheet.
@@ -189,8 +190,18 @@ struct HistoryView: View {
                       isTest: run.isTest,
                       isTreadmill: run.isTreadmill,
                       effort: run.effort,
-                      footPain: run.footPain)
+                      footPain: run.footPain,
+                      routeName: routeName(run.routeId))
         }
+    }
+
+    /// The name of the route a run followed: from the shipped routes, else the saved ones; empty for none.
+    private func routeName(_ id: String) -> String {
+        guard !id.isEmpty else { return "" }
+        if let name = RouteCatalogLoader.bundled?.name(forId: id) {
+            return name
+        }
+        return savedRoutes.first(where: { $0.id == id })?.name ?? ""
     }
 
     private var exportWorkouts: [ExportWorkout] {

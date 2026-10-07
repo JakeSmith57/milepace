@@ -19,6 +19,9 @@ struct LiveRunMapView: View {
     private let startPins: [Pin]
     private let milePins: [Pin]
     private let youPins: [Pin]
+    /// The route being followed, drawn thin and dim under the live track (empty when there is none).
+    private let plannedPieces: [PathPiece]
+    private let plannedStartPins: [Pin]
 
     @State private var position: MapCameraPosition = LiveRunMapView.followPosition
 
@@ -26,7 +29,17 @@ struct LiveRunMapView: View {
         return .userLocation(followsHeading: false, fallback: .automatic)
     }
 
-    init(route: [RoutePoint], lastCoordinate: CLLocationCoordinate2D?) {
+    init(route: [RoutePoint], lastCoordinate: CLLocationCoordinate2D?, plannedRoute: [GeoPoint] = []) {
+        let plannedCoordinates = plannedRoute.map { point in
+            CLLocationCoordinate2D(latitude: point.lat, longitude: point.lon)
+        }
+        if plannedCoordinates.count >= 2 {
+            self.plannedPieces = [PathPiece(id: 0, coordinates: plannedCoordinates)]
+            self.plannedStartPins = [Pin(id: 0, coordinate: plannedCoordinates[0])]
+        } else {
+            self.plannedPieces = []
+            self.plannedStartPins = []
+        }
         let split = LiveRouteSegments.split(route)
         var built: [PathPiece] = []
         for (index, piece) in split.enumerated() {
@@ -69,6 +82,15 @@ struct LiveRunMapView: View {
 
     private var mapView: some View {
         Map(position: $position) {
+            ForEach(plannedPieces) { piece in
+                MapPolyline(coordinates: piece.coordinates)
+                    .stroke(Theme.dim, lineWidth: 3)
+            }
+            ForEach(plannedStartPins) { pin in
+                Annotation("", coordinate: pin.coordinate) {
+                    plannedStartMarker
+                }
+            }
             ForEach(pieces) { piece in
                 MapPolyline(coordinates: piece.coordinates)
                     .stroke(Theme.signal, lineWidth: 6)
@@ -112,6 +134,14 @@ struct LiveRunMapView: View {
             .fill(Theme.fg)
             .frame(width: 12, height: 12)
             .overlay(Rectangle().strokeBorder(Theme.bg, lineWidth: 2))
+    }
+
+    /// Start of the followed route: a small hollow square.
+    private var plannedStartMarker: some View {
+        Rectangle()
+            .fill(Theme.bg)
+            .frame(width: 8, height: 8)
+            .overlay(Rectangle().strokeBorder(Theme.fg, lineWidth: 2))
     }
 
     /// You: a 16 pt signal square with a 3 pt onSignal border.

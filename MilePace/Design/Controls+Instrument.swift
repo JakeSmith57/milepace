@@ -210,7 +210,7 @@ struct HoldBar: View {
 
 // MARK: - Screens
 
-/// The six screens. Today is home; the others are opened from it with `PlanStore.open(_:)` and left
+/// The seven screens. Today is home; the others are opened from it with `PlanStore.open(_:)` and left
 /// with `PlanStore.goHome()`.
 enum AppTab: String, CaseIterable, Identifiable {
     case today
@@ -219,6 +219,7 @@ enum AppTab: String, CaseIterable, Identifiable {
     case log
     case set
     case routines
+    case routes
 
     var id: String { rawValue }
 }

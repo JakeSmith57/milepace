@@ -25,6 +25,8 @@ final class RunRecord {
     var effort: Int = 0
     /// Big toe or foot pain after the run, 0 to 10; -1 when not set.
     var footPain: Int = -1
+    /// Id of the route (catalog id or `SavedRoute.id`) the run followed; empty when none.
+    var routeId: String = ""
 
     init(date: Date,
          distanceMeters: Double,
@@ -36,7 +38,8 @@ final class RunRecord {
          averageCadence: Double = 0,
          workoutName: String = "",
          isTest: Bool = false,
-         isTreadmill: Bool = false) {
+         isTreadmill: Bool = false,
+         routeId: String = "") {
         self.date = date
         self.distanceMeters = distanceMeters
         self.durationSeconds = durationSeconds
@@ -48,6 +51,7 @@ final class RunRecord {
         self.workoutName = workoutName
         self.isTest = isTest
         self.isTreadmill = isTreadmill
+        self.routeId = routeId
     }
 
     var route: [RoutePoint] {
@@ -94,4 +98,70 @@ final class WorkoutRecord {
     var lapSplits: [[Double]] {
         return (try? JSONDecoder().decode([[Double]].self, from: lapSplitsData)) ?? []
     }
+}
+
+/// A route kept on the device so runs never need the network: a curated route after MapKit resolved it
+/// (`kind` "curated"), or, from the next part, a generated or learned one.
+@Model
+final class SavedRoute {
+    /// A catalog id for a curated route.
+    var id: String = ""
+    var name: String = ""
+    /// `SavedRouteKind` raw value: "curated", "generated" or "learned".
+    var kind: String = "curated"
+    /// JSON-encoded `[GeoPoint]`.
+    var pointsData: Data = Data()
+    var distanceMeters: Double = 0
+    var notes: String = ""
+    /// The home address the route was resolved from.
+    var homeAddress: String = ""
+    var createdAt: Date = Date()
+    var lastUsedAt: Date? = nil
+    /// JSON-encoded `[GeoPoint]`: the stops MapKit connected (start first). Empty when unknown.
+    var stopsData: Data = Data()
+
+    init(id: String,
+         name: String,
+         kind: SavedRouteKind,
+         points: [GeoPoint],
+         stops: [GeoPoint] = [],
+         distanceMeters: Double,
+         notes: String,
+         homeAddress: String,
+         createdAt: Date = Date()) {
+        self.id = id
+        self.name = name
+        self.kind = kind.rawValue
+        self.pointsData = (try? JSONEncoder().encode(points)) ?? Data()
+        self.stopsData = stops.isEmpty ? Data() : ((try? JSONEncoder().encode(stops)) ?? Data())
+        self.distanceMeters = distanceMeters
+        self.notes = notes
+        self.homeAddress = homeAddress
+        self.createdAt = createdAt
+    }
+
+    var points: [GeoPoint] {
+        guard !pointsData.isEmpty else { return [] }
+        return (try? JSONDecoder().decode([GeoPoint].self, from: pointsData)) ?? []
+    }
+
+    var stops: [GeoPoint] {
+        guard !stopsData.isEmpty else { return [] }
+        return (try? JSONDecoder().decode([GeoPoint].self, from: stopsData)) ?? []
+    }
+
+    /// Replaces the path and the numbers that come from it.
+    func update(points: [GeoPoint], stops: [GeoPoint], distanceMeters: Double, homeAddress: String, createdAt: Date) {
+        self.pointsData = (try? JSONEncoder().encode(points)) ?? Data()
+        self.stopsData = stops.isEmpty ? Data() : ((try? JSONEncoder().encode(stops)) ?? Data())
+        self.distanceMeters = distanceMeters
+        self.homeAddress = homeAddress
+        self.createdAt = createdAt
+    }
+}
+
+enum SavedRouteKind: String {
+    case curated
+    case generated
+    case learned
 }

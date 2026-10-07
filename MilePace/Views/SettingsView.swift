@@ -15,6 +15,7 @@ struct SettingsView: View {
     @AppStorage(SettingsKey.cueInterval) private var cueInterval: CueInterval = .half
     @AppStorage(SettingsKey.voiceEnabled) private var voiceEnabled: Bool = true
     @AppStorage(SettingsKey.autoPause) private var autoPause: Bool = true
+    @AppStorage(SettingsKey.homeAddress) private var homeAddress: String = RouteHome.defaultAddress
     @AppStorage(SettingsKey.metronomeEnabled) private var metronomeEnabled: Bool = false
     @AppStorage(SettingsKey.metronomeBPM) private var metronomeBPM: Int = AppSettings.defaultMetronomeBPM
     @AppStorage(SettingsKey.metronomeVolume) private var metronomeVolume: Double = AppSettings.defaultMetronomeVolume
@@ -39,6 +40,7 @@ struct SettingsView: View {
     @State private var confirmEndTest: Bool = false
     @State private var endTestFailed: Bool = false
     @State private var showVoicePicker: Bool = false
+    @State private var homeText: String = ""
     @State private var voiceOptions: [VoiceOption] = []
 
     private var zones: PaceZones {
@@ -83,7 +85,7 @@ struct SettingsView: View {
         VStack(spacing: 0) {
             StatusLine(left: "milepace",
                        center: "set",
-                       right: "v1.14",
+                       right: "v1.15",
                        accessory: StatusAccessory(title: "today", action: { PlanStore.shared.goHome() }))
             ScrollView {
                 VStack(alignment: .leading, spacing: 0) {
@@ -92,7 +94,7 @@ struct SettingsView: View {
                     planSection
                     testWeekSection
                     remindersSection
-                    runSection
+                    runAndRoutes
                     voiceAndFeedback
                     trackOptions
                     metronome
@@ -107,6 +109,7 @@ struct SettingsView: View {
         .onAppear {
             mileText = formatDuration(mileTime)
             goalText = formatDuration(goalMile)
+            homeText = RouteHome.address
             planStart = PlanStore.shared.realStartDate
             Reminders.shared.refreshAuthorization()
         }
@@ -410,6 +413,51 @@ struct SettingsView: View {
             CheckRow(title: "auto-pause", isOn: $autoPause)
             note("pauses when you stop (lights, traffic) and resumes when you run again. never during reps or recoveries, never on the treadmill.")
         }
+    }
+
+    // MARK: Routes
+
+    /// One child of the screen's stack (a view builder takes at most 10).
+    private var runAndRoutes: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            runSection
+            routesSection
+        }
+    }
+
+    private var routesSection: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            SectionHeader("routes")
+            FieldRow(key: "home",
+                     placeholder: "street, city",
+                     text: $homeText,
+                     keyboard: .default,
+                     fieldWidth: 220,
+                     onCommit: { commitHome() })
+            BracketButton(title: "reset", minHeight: 44, fullWidth: false, size: .micro) {
+                resetHome()
+            }
+            .padding(.top, Theme.s2)
+            note("routes start here. after a new address, tap [ resolve all ] on the routes screen to find them again (needs the network).")
+        }
+    }
+
+    /// Takes the typed home address when the field is submitted or left; an empty one goes back to the default.
+    private func commitHome() {
+        let trimmed = homeText.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmed.isEmpty {
+            resetHome()
+            return
+        }
+        if trimmed != homeAddress {
+            homeAddress = trimmed
+        }
+        homeText = trimmed
+    }
+
+    private func resetHome() {
+        homeAddress = RouteHome.defaultAddress
+        homeText = RouteHome.defaultAddress
     }
 
     private var voiceAndFeedback: some View {

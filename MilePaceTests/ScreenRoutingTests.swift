@@ -55,6 +55,17 @@ final class ScreenRoutingTests: XCTestCase {
         XCTAssertEqual(resolve(requested: .routines), .routines)
     }
 
+    func testTheRoutesScreenIsOverriddenWhileARunIsInProgress() {
+        XCTAssertEqual(resolve(current: .run, requested: .routes, run: true), .run)
+        XCTAssertEqual(resolve(current: .track, requested: .routes, track: true), .track)
+    }
+
+    func testTheRoutesScreenOpensWhenIdle() {
+        XCTAssertEqual(resolve(requested: .routes), .routes)
+        XCTAssertEqual(resolve(current: .routes, requested: .today), .today)
+        XCTAssertEqual(resolve(current: .run, requested: .routes), .routes)
+    }
+
     func testTheRunWinsWhenBothAreSomehowInProgress() {
         XCTAssertEqual(resolve(requested: .log, run: true, track: true), .run)
     }

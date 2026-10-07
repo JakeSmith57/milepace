@@ -39,6 +39,12 @@ enum SettingsKey {
     static let autoPause = "autoPause"
     /// `RunSurface` raw value for the run screen's setup.
     static let runSurface = "runSurface"
+    /// Home address for the routes screen; empty or missing means the catalog's address.
+    static let homeAddress = "homeAddress"
+    /// The address the saved home coordinate belongs to, and that coordinate.
+    static let homeGeocodedAddress = "homeGeocodedAddress"
+    static let homeLatitude = "homeLatitude"
+    static let homeLongitude = "homeLongitude"
 }
 
 /// Light, dark or follow the system.

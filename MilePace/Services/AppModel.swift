@@ -11,7 +11,7 @@ final class AppModel {
 
     private init() {
         do {
-            container = try ModelContainer(for: RunRecord.self, WorkoutRecord.self)
+            container = try ModelContainer(for: RunRecord.self, WorkoutRecord.self, SavedRoute.self)
         } catch {
             fatalError("MilePace could not open its data store: \(error)")
         }
