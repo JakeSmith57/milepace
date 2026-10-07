@@ -18,7 +18,7 @@ final class YourRoutes {
     private init() {}
 
     /// A short fingerprint of the runs: how many, and when they were made.
-    static func signature(_ inputs: [RunPathInput]) -> String {
+    nonisolated static func signature(_ inputs: [RunPathInput]) -> String {
         var total = 0
         for input in inputs {
             total += Int(input.date.timeIntervalSince1970)
