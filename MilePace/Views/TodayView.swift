@@ -190,6 +190,7 @@ struct TodayView: View {
     private func planColumn(_ schedule: PlanSchedule) -> some View {
         VStack(alignment: .leading, spacing: Theme.s3) {
             missedSection(schedule)
+            footCard
             todaySection(schedule)
             doctorNote
             weekSection(schedule)
@@ -282,6 +283,32 @@ struct TodayView: View {
     private func micro(_ text: String) -> some View {
         return Text(text)
             .font(Theme.mono(.micro))
+    }
+
+    /// Foot pain of 4 or more after the latest run or workout in the last 3 days: a plan-colored note above
+    /// today's session. Nothing else about the plan changes.
+    @ViewBuilder
+    private var footCard: some View {
+        if let warning = FootCheck.warning(entries: footEntries, now: Date()) {
+            Text(FootCheck.cardText(value: warning.value, day: ReadoutFormat.day(warning.date)))
+                .font(Theme.mono(.micro))
+                .foregroundStyle(Theme.onSignal)
+                .fixedSize(horizontal: false, vertical: true)
+                .padding(Theme.s3)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(Theme.plan)
+        }
+    }
+
+    private var footEntries: [FootEntry] {
+        var entries: [FootEntry] = []
+        for run in runs {
+            entries.append(FootEntry(date: run.date, value: run.footPain, isTest: run.isTest))
+        }
+        for workout in workouts {
+            entries.append(FootEntry(date: workout.date, value: workout.footPain, isTest: workout.isTest))
+        }
+        return entries
     }
 
     @ViewBuilder

@@ -20,6 +20,10 @@ struct ExportRun: Equatable {
     var isTest: Bool = false
     /// Made on a treadmill: the distance was typed in, and the splits column says "treadmill".
     var isTreadmill: Bool = false
+    /// Effort 1 to 10 after the run; 0 when not set.
+    var effort: Int = 0
+    /// Foot pain 0 to 10 after the run; -1 when not set.
+    var footPain: Int = -1
 }
 
 /// A saved track workout, reduced to what the export lists.
@@ -31,6 +35,10 @@ struct ExportWorkout: Equatable {
     let lapSplits: [[Double]]
     /// Made during the test week. The builder leaves these out.
     var isTest: Bool = false
+    /// Effort 1 to 10 after the workout; 0 when not set.
+    var effort: Int = 0
+    /// Foot pain 0 to 10 after the workout; -1 when not set.
+    var footPain: Int = -1
 }
 
 struct ExportSettings: Equatable {
@@ -58,6 +66,8 @@ struct ExportInput {
     let workouts: [ExportWorkout]
     /// The test week is on: `plan`, `progress` and `todayOffset` are the real ones and test data is left out.
     var testWeekActive: Bool = false
+    /// The fastest time per distance from each outdoor run's route (test runs left out by the caller).
+    var gpsBests: [DistanceBest] = []
 }
 
 // MARK: - Builder
@@ -80,6 +90,8 @@ enum ProgressExport {
         lines.append(contentsOf: runLines(context))
         lines.append(contentsOf: workoutLines(context))
         lines.append(contentsOf: trialLines(context))
+        lines.append(contentsOf: mileProgressLines(context))
+        lines.append(contentsOf: footLines(context))
         lines.append(contentsOf: totalsLines(context))
         return lines.joined(separator: "\n") + "\n"
     }
@@ -276,25 +288,36 @@ enum ProgressExport {
             lines.append("none yet.")
             return lines
         }
-        lines.append(contentsOf: tableHead(["date", "miles", "time", "avg /mi", "cadence", "workout", "mile splits", "notes"]))
+        // The "feel" column (effort and foot pain) only appears once any run has one.
+        let showFeel = context.runs.contains { FeelText.exportText(effort: $0.effort, footPain: $0.footPain) != nil }
+        var names = ["date", "miles", "time", "avg /mi", "cadence", "workout", "mile splits"]
+        if showFeel {
+            names.append("feel")
+        }
+        names.append("notes")
+        lines.append(contentsOf: tableHead(names))
         for run in context.runs {
-            lines.append(runRow(run, context: context))
+            lines.append(runRow(run, context: context, showFeel: showFeel))
         }
         return lines
     }
 
-    private static func runRow(_ run: ExportRun, context: ExportContext) -> String {
+    private static func runRow(_ run: ExportRun, context: ExportContext, showFeel: Bool) -> String {
         let time = run.durationSeconds > 0 ? formatDuration(run.durationSeconds) : ""
         let cadence = run.averageCadence > 0 ? "\(Int(run.averageCadence.rounded())) spm" : ""
         let workout = run.workoutName.isEmpty ? "free" : run.workoutName
-        return row([context.dayText(run.date),
-                    miles(run.distanceMeters),
-                    time,
-                    formatPace(secondsPerMile: run.averagePace),
-                    cadence,
-                    workout,
-                    splitsText(run),
-                    run.notes])
+        var cells = [context.dayText(run.date),
+                     miles(run.distanceMeters),
+                     time,
+                     formatPace(secondsPerMile: run.averagePace),
+                     cadence,
+                     workout,
+                     splitsText(run)]
+        if showFeel {
+            cells.append(FeelText.exportText(effort: run.effort, footPain: run.footPain) ?? "")
+        }
+        cells.append(run.notes)
+        return row(cells)
     }
 
     private static func splitsText(_ run: ExportRun) -> String {
@@ -327,10 +350,16 @@ enum ProgressExport {
         var lines: [String] = ["### " + context.dayText(workout.date) + " " + workout.name]
         guard let spec = workout.spec else {
             lines.append("- spec unavailable")
+            if let feel = FeelText.exportText(effort: workout.effort, footPain: workout.footPain) {
+                lines.append("- feel: " + feel)
+            }
             lines.append("- reps: " + (workout.repTimes.isEmpty ? "none" : workout.repTimes.map { formatSplit($0) }.joined(separator: ", ")))
             return lines
         }
         lines.append("- workout: " + specText(spec))
+        if let feel = FeelText.exportText(effort: workout.effort, footPain: workout.footPain) {
+            lines.append("- feel: " + feel)
+        }
         guard !workout.repTimes.isEmpty else {
             lines.append("- reps: none completed")
             return lines
@@ -394,7 +423,70 @@ enum ProgressExport {
         return text
     }
 
-    // MARK: 8. Totals
+    // MARK: 8. Mile progress
+
+    private static func mileProgressLines(_ context: ExportContext) -> [String] {
+        let snapshot = context.mileSnapshot
+        var lines: [String] = ["", "## Mile progress", ""]
+        if let latestDate = snapshot.latestDate {
+            lines.append("- latest mile: \(formatDuration(snapshot.latest)) (track, " + context.dayText(latestDate) + ")")
+        } else {
+            lines.append("- latest mile: \(formatDuration(snapshot.latest)) (the mile time setting; no track mile yet)")
+        }
+        lines.append("- goal mile: " + formatDuration(snapshot.goal))
+        if snapshot.latest > snapshot.goal {
+            lines.append("- to go: " + formatDuration(snapshot.toGo))
+        } else {
+            lines.append("- goal reached")
+        }
+        lines.append("")
+        lines.append("Bests (track reps count at their exact distance; the rest come from GPS routes):")
+        lines.append("")
+        lines.append(contentsOf: tableHead(["distance", "best", "date"]))
+        for distance in MileProgress.bestDistances {
+            if let best = snapshot.bests.first(where: { $0.distance == distance }) {
+                lines.append(row([MileProgress.distanceLabel(distance),
+                                  MileProgress.timeText(best.seconds, distance: distance),
+                                  context.dayText(best.date)]))
+            } else {
+                lines.append(row([MileProgress.distanceLabel(distance), "\u{2014}", "\u{2014}"]))
+            }
+        }
+        lines.append("")
+        lines.append("Time trials and races against the plan target:")
+        lines.append("")
+        if snapshot.results.isEmpty {
+            lines.append("none yet.")
+        } else {
+            for result in snapshot.results.reversed() {
+                lines.append(context.mileResultLine(result))
+            }
+        }
+        return lines
+    }
+
+    // MARK: 9. Foot
+
+    private static func footLines(_ context: ExportContext) -> [String] {
+        var lines: [String] = ["", "## Foot", ""]
+        var entries: [(date: Date, value: Int, text: String)] = []
+        for run in context.runs where run.footPain >= 1 {
+            entries.append((run.date, run.footPain, "run \(miles(run.distanceMeters)) mi"))
+        }
+        for workout in context.workouts where workout.footPain >= 1 {
+            entries.append((workout.date, workout.footPain, "workout " + workout.name))
+        }
+        guard !entries.isEmpty else {
+            lines.append("no foot pain logged")
+            return lines
+        }
+        for entry in entries.sorted(by: { $0.date > $1.date }) {
+            lines.append("- " + context.dayText(entry.date) + ": foot \(entry.value), " + entry.text)
+        }
+        return lines
+    }
+
+    // MARK: 10. Totals
 
     private static func totalsLines(_ context: ExportContext) -> [String] {
         let meters = context.runs.reduce(0) { $0 + $1.distanceMeters }
@@ -493,6 +585,57 @@ private struct ExportContext {
             return LoggedWorkout(date: workout.date, name: workout.name, repMeters: Double(workout.repTimes.count) * distance)
         }
         return PlanActivities.milesByDay(runs: logged, workouts: tracks, start: start, calendar: calendar)
+    }
+
+    /// The mile chart's numbers, from the saved track workouts, the GPS bests and the settings.
+    var mileSnapshot: MileSnapshot {
+        let raceDays = Set(raceDayOffsets)
+        let tracks = workouts.map { workout -> MileTrackInput in
+            let day = PlanCalendar.activityDay(of: workout.date, start: start, calendar: calendar)
+            return MileTrackInput(date: workout.date,
+                                  repDistance: workout.spec?.repDistance ?? 0,
+                                  totalReps: workout.spec?.totalReps ?? 0,
+                                  repTimes: workout.repTimes,
+                                  isRace: raceDays.contains(day))
+        }
+        return MileProgress.snapshot(tracks: tracks,
+                                     gps: input.gpsBests,
+                                     plan: [],
+                                     goal: input.settings.goalMile,
+                                     mileTime: input.settings.mileTime)
+    }
+
+    /// Plan days of the race sessions.
+    private var raceDayOffsets: [Int] {
+        guard let schedule = schedule else { return [] }
+        return schedule.plan.sessions.indices
+            .filter { schedule.plan.sessions[$0].kind == .race }
+            .map { schedule.dayOffset($0) }
+    }
+
+    /// "- 2026-10-17 (Sat) time trial: 6:31 vs plan target 6:35 (\u{2212}4)" or "..., no plan target".
+    func mileResultLine(_ result: MileResult) -> String {
+        let kind = result.source == .race ? "race" : "time trial"
+        var text = "- " + dayText(result.date) + " " + kind + ": " + formatDuration(result.seconds)
+        if let target = planTarget(onDay: PlanCalendar.activityDay(of: result.date, start: start, calendar: calendar)) {
+            text += " vs plan target " + formatDuration(target) + " (" + ReadoutFormat.signedDelta(result.seconds - target) + ")"
+        } else {
+            text += ", no plan target that day"
+        }
+        return text
+    }
+
+    /// The target of the plan's time trial or race on plan day `day`.
+    private func planTarget(onDay day: Int) -> Double? {
+        guard let schedule = schedule else { return nil }
+        for index in schedule.plan.sessions.indices {
+            let session = schedule.plan.sessions[index]
+            guard session.kind == .timeTrial || session.kind == .race,
+                  schedule.dayOffset(index) == day,
+                  let target = session.targetSeconds else { continue }
+            return target
+        }
+        return nil
     }
 
     /// The result of the time trial or race held on plan day `day`: a track workout of that day when there

@@ -21,6 +21,10 @@ final class RunRecord {
     var isTest: Bool = false
     /// True for a run on a treadmill: no route, and the distance was typed in (or the pedometer's guess).
     var isTreadmill: Bool = false
+    /// Effort after the run, 1 to 10; 0 when not set.
+    var effort: Int = 0
+    /// Big toe or foot pain after the run, 0 to 10; -1 when not set.
+    var footPain: Int = -1
 
     init(date: Date,
          distanceMeters: Double,
@@ -64,6 +68,10 @@ final class WorkoutRecord {
     var lapSplitsData: Data
     /// True for a workout made during the test week; those are deleted when the test week ends.
     var isTest: Bool = false
+    /// Effort after the workout, 1 to 10; 0 when not set.
+    var effort: Int = 0
+    /// Big toe or foot pain after the workout, 0 to 10; -1 when not set.
+    var footPain: Int = -1
 
     init(date: Date,
          name: String,

@@ -11,6 +11,12 @@ struct HistoryView: View {
     /// The export file waiting in the share sheet.
     @State private var shareFile: ShareFile?
     @State private var exportFailed = false
+    /// The fastest time per distance in each outdoor run's route, worked out off the main thread whenever the
+    /// number of saved runs changes (decoding every route is the slow part).
+    @State private var gpsBests: [DistanceBest] = []
+
+    @AppStorage(SettingsKey.mileTime) private var mileTime: Double = AppSettings.defaultMileTime
+    @AppStorage(SettingsKey.goalMile) private var goalMile: Double = AppSettings.defaultGoalMile
 
     /// The same Monday-to-Sunday weekly miles as the today screen: runs plus estimated track workouts.
     private var buckets: [WeekBucket] {
@@ -43,6 +49,7 @@ struct HistoryView: View {
                                     unit: "mi",
                                     size: .hero)
                             .padding(.top, Theme.s3)
+                        MileProgressView(snapshot: mileSnapshot)
                         weeklyChart
                         runsSection
                         workoutsSection
@@ -63,6 +70,86 @@ struct HistoryView: View {
             .sheet(item: $shareFile) { file in
                 ShareSheet(url: file.url)
             }
+            .onAppear {
+                refreshGPSBests()
+            }
+            .onChange(of: runs.count) { _, _ in
+                refreshGPSBests()
+            }
+        }
+    }
+
+    // MARK: Mile progress
+
+    private var mileSnapshot: MileSnapshot {
+        return MileProgress.snapshot(tracks: mileTracks,
+                                     gps: gpsBests,
+                                     plan: planMilePoints,
+                                     goal: goalMile,
+                                     mileTime: mileTime)
+    }
+
+    /// Plan days (from the real plan's start) of the race sessions.
+    private var raceDayOffsets: Set<Int> {
+        guard let schedule = PlanStore.shared.exportSchedule else { return [] }
+        var days = Set<Int>()
+        for index in schedule.plan.sessions.indices where schedule.plan.sessions[index].kind == .race {
+            days.insert(schedule.dayOffset(index))
+        }
+        return days
+    }
+
+    private var mileTracks: [MileTrackInput] {
+        let start = PlanCalendar.parse(PlanStore.shared.exportStartYMD)
+        let raceDays = raceDayOffsets
+        var inputs: [MileTrackInput] = []
+        for workout in workouts where !workout.isTest {
+            guard let spec = workout.spec else { continue }
+            var isRace = false
+            if let start = start {
+                isRace = raceDays.contains(PlanCalendar.activityDay(of: workout.date, start: start))
+            }
+            inputs.append(MileTrackInput(date: workout.date,
+                                         repDistance: spec.repDistance,
+                                         totalReps: spec.totalReps,
+                                         repTimes: workout.repTimes,
+                                         isRace: isRace))
+        }
+        return inputs
+    }
+
+    /// The real plan's time trials and races with their targets, at the days they are scheduled.
+    private var planMilePoints: [PlanMilePoint] {
+        let store = PlanStore.shared
+        guard let schedule = store.exportSchedule, let start = PlanCalendar.parse(store.exportStartYMD) else { return [] }
+        var points: [PlanMilePoint] = []
+        for index in schedule.plan.sessions.indices {
+            let session = schedule.plan.sessions[index]
+            guard session.kind == .timeTrial || session.kind == .race, let target = session.targetSeconds else { continue }
+            let day = PlanCalendar.date(forOffset: schedule.dayOffset(index), start: start)
+            points.append(PlanMilePoint(date: day, seconds: target))
+        }
+        return points
+    }
+
+    /// Decodes the routes of the saved outdoor runs off the main thread and keeps each run's fastest times.
+    private func refreshGPSBests() {
+        let blobs: [(date: Date, data: Data)] = runs
+            .filter { !$0.isTest && !$0.isTreadmill && !$0.routeData.isEmpty }
+            .map { (date: $0.date, data: $0.routeData) }
+        let count = runs.count
+        Task { @MainActor in
+            let found = await Task.detached(priority: .utility) { () -> [DistanceBest] in
+                var result: [DistanceBest] = []
+                for blob in blobs {
+                    guard let route = try? JSONDecoder().decode([RoutePoint].self, from: blob.data) else { continue }
+                    result.append(contentsOf: MileProgress.gpsBests(date: blob.date, route: route))
+                }
+                return result
+            }.value
+            // A newer refresh is on its way when runs were added or deleted meanwhile.
+            guard count == runs.count else { return }
+            gpsBests = found
         }
     }
 
@@ -100,7 +187,9 @@ struct HistoryView: View {
                       notes: run.notes,
                       hasRoute: !run.routeData.isEmpty,
                       isTest: run.isTest,
-                      isTreadmill: run.isTreadmill)
+                      isTreadmill: run.isTreadmill,
+                      effort: run.effort,
+                      footPain: run.footPain)
         }
     }
 
@@ -111,7 +200,9 @@ struct HistoryView: View {
                           spec: workout.spec,
                           repTimes: workout.repTimes,
                           lapSplits: workout.lapSplits,
-                          isTest: workout.isTest)
+                          isTest: workout.isTest,
+                          effort: workout.effort,
+                          footPain: workout.footPain)
         }
     }
 
@@ -139,7 +230,8 @@ struct HistoryView: View {
                            zones: AppSettings.zones,
                            runs: exportRuns,
                            workouts: exportWorkouts,
-                           testWeekActive: store.isTestWeek)
+                           testWeekActive: store.isTestWeek,
+                           gpsBests: gpsBests)
     }
 
     /// Writes the progress file to the temporary folder and offers it in the share sheet.
@@ -256,13 +348,20 @@ struct HistoryView: View {
     /// "test" and "treadmill" labels above a log row.
     @ViewBuilder
     private func runTags(_ run: RunRecord) -> some View {
-        if run.isTest || run.isTreadmill {
+        let feel = FeelText.logSuffix(effort: run.effort, footPain: run.footPain)
+        if run.isTest || run.isTreadmill || !feel.isEmpty {
             HStack(spacing: Theme.s1) {
                 if run.isTest {
                     PlanTag(text: "test")
                 }
                 if run.isTreadmill {
                     PlanTag(text: "treadmill")
+                }
+                if !feel.isEmpty {
+                    // " \u{00B7} rpe 7 \u{00B7} foot 3" without its leading separator.
+                    Text(String(feel.dropFirst(3)))
+                        .font(Theme.mono(.micro))
+                        .foregroundStyle(Theme.dim)
                 }
             }
             .padding(.top, Theme.s1)
@@ -275,7 +374,7 @@ struct HistoryView: View {
                        value: "\(workout.repTimes.count) reps",
                        ruled: false)
             HStack(spacing: Theme.s2) {
-                Text(workout.name)
+                Text(workout.name + FeelText.logSuffix(effort: workout.effort, footPain: workout.footPain))
                     .font(Theme.mono(.micro))
                     .foregroundStyle(Theme.dim)
                 if workout.isTest {
@@ -463,6 +562,8 @@ struct RunDetailView: View {
                     }
                     numbers
                     splitsBlock
+                    SectionHeader("effort and foot")
+                    EffortFootRows(effort: $run.effort, footPain: $run.footPain)
                     SectionHeader("notes")
                     BoxedField(placeholder: "notes", text: $run.notes, lines: 1...6)
                         .padding(.top, Theme.s2)
@@ -533,7 +634,7 @@ struct RunDetailView: View {
 }
 
 struct WorkoutDetailView: View {
-    let workout: WorkoutRecord
+    @Bindable var workout: WorkoutRecord
 
     @Environment(\.dismiss) private var dismiss
     @Environment(\.modelContext) private var modelContext
@@ -578,6 +679,8 @@ struct WorkoutDetailView: View {
                             .foregroundStyle(Theme.dim)
                             .padding(.top, Theme.s2)
                     }
+                    SectionHeader("effort and foot")
+                    EffortFootRows(effort: $workout.effort, footPain: $workout.footPain)
                     ConfirmDeleteButton(title: "delete workout") {
                         delete()
                     }

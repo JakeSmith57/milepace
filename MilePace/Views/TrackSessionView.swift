@@ -27,6 +27,9 @@ struct TrackSessionView: View {
     /// again (going to the background while the pace offer is up would, and the draft would offer a second copy).
     @State private var saved: Bool = false
     @State private var saveFailed: Bool = false
+    /// Effort (0 = not set) and foot pain (-1 = not set) chosen on the results screen, saved with the workout.
+    @State private var effort: Int = 0
+    @State private var footPain: Int = -1
     /// Set when an unsaved finished workout from earlier could not be saved before this one started.
     @State private var startBlocked: Bool = false
     /// Whether this session belongs to the test week. A resumed session keeps what it was saved with; a
@@ -445,6 +448,8 @@ struct TrackSessionView: View {
                                         lapSplits: workout.lapSplits)
                         .padding(.top, Theme.s2)
                     resultsUndo
+                    SectionHeader("effort and foot")
+                    EffortFootRows(effort: $effort, footPain: $footPain)
                     saveButton
                     discardButton
                 }
@@ -527,6 +532,8 @@ struct TrackSessionView: View {
                                    repTimes: workout.repTimes,
                                    lapSplits: workout.lapSplits,
                                    isTest: isTest)
+        record.effort = effort
+        record.footPain = footPain
         modelContext.insert(record)
         do {
             try modelContext.save()

@@ -32,6 +32,9 @@ struct RunView: View {
     /// The plan session the run marked done, so discarding the run can reopen it.
     @State private var completedPlanIndex: Int?
     @State private var summaryBusy: Bool = false
+    /// The run's fastest mile when it beats every earlier mile and the mile time setting; worked out after
+    /// the summary opens, so it can appear a moment later.
+    @State private var newBestMile: Double?
     @State private var showDiagnostics: Bool = false
     /// A run found on disk that was never finished (the app was killed or crashed during it).
     @State private var pendingDraft: RunDraft?
@@ -113,7 +116,10 @@ struct RunView: View {
         .sheet(item: $summary) { item in
             RunSummaryView(summary: item,
                            isBusy: summaryBusy,
-                           onSave: { notes, treadmillMeters in save(item, notes: notes, treadmillMeters: treadmillMeters) },
+                           newBestMile: newBestMile,
+                           onSave: { notes, treadmillMeters, effort, footPain in
+                               save(item, notes: notes, treadmillMeters: treadmillMeters, effort: effort, footPain: footPain)
+                           },
                            onDiscard: { discard() })
         }
         .onAppear {
@@ -984,6 +990,7 @@ struct RunView: View {
                                workoutName: result.workoutName ?? "",
                                isTest: result.isTest,
                                isTreadmill: result.isTreadmill)
+        let history = mileHistory(for: result)
         modelContext.insert(record)
         do {
             try modelContext.save()
@@ -1008,7 +1015,62 @@ struct RunView: View {
         }
         savedRecord = record
         summaryBusy = false
+        newBestMile = nil
         summary = result
+        checkNewBestMile(result, history: history)
+    }
+
+    // MARK: New best mile
+
+    /// What the new-best check compares a run against: the routes of earlier outdoor runs (decoded later,
+    /// off the main thread) and the best single-mile track result so far.
+    private struct MileHistory {
+        let routes: [Data]
+        let trackMile: Double?
+    }
+
+    /// Read before the new run is inserted, so it is never compared with itself. Empty for runs that cannot
+    /// set a GPS best (treadmill, test week).
+    private func mileHistory(for result: RunSummary) -> MileHistory {
+        guard !result.isTreadmill, !result.isTest else {
+            return MileHistory(routes: [], trackMile: nil)
+        }
+        let runs = (try? modelContext.fetch(FetchDescriptor<RunRecord>())) ?? []
+        let routes = runs.filter { !$0.isTest && !$0.isTreadmill && !$0.routeData.isEmpty }.map { $0.routeData }
+        let workouts = (try? modelContext.fetch(FetchDescriptor<WorkoutRecord>())) ?? []
+        var trackMile: Double? = nil
+        for workout in workouts where !workout.isTest {
+            guard let spec = workout.spec else { continue }
+            let bests = MileProgress.trackBests(date: workout.date, repDistance: spec.repDistance, repTimes: workout.repTimes)
+            for best in bests where best.distance == MileProgress.mileMeters {
+                trackMile = min(trackMile ?? best.seconds, best.seconds)
+            }
+        }
+        return MileHistory(routes: routes, trackMile: trackMile)
+    }
+
+    /// Sets `newBestMile` when this run's fastest mile beats every earlier mile (GPS and track) and the mile
+    /// time setting. Never changes a setting: only a track time trial offers new paces.
+    private func checkNewBestMile(_ result: RunSummary, history: MileHistory) {
+        guard !result.isTreadmill, !result.isTest,
+              let mile = MileProgress.fastestMile(route: result.route) else { return }
+        let mileTime = AppSettings.mileTime
+        let routes = history.routes
+        let trackMile = history.trackMile
+        let runID = result.id
+        Task { @MainActor in
+            let previous = await Task.detached(priority: .utility) { () -> Double? in
+                var best: Double? = trackMile
+                for blob in routes {
+                    guard let route = try? JSONDecoder().decode([RoutePoint].self, from: blob),
+                          let time = MileProgress.fastestMile(route: route) else { continue }
+                    best = min(best ?? time, time)
+                }
+                return best
+            }.value
+            guard summary?.id == runID else { return }
+            newBestMile = MileProgress.newBestMile(current: mile, previousBest: previous, mileTime: mileTime)
+        }
     }
 
     /// The click follows the run: a pause silences it, a resume brings it back. Driven by the run's phase
@@ -1068,7 +1130,7 @@ struct RunView: View {
 
     /// "[ save run ]": the run is already stored; this adds the notes and the pedometer's cadence for
     /// the whole run, then closes the sheet.
-    private func save(_ item: RunSummary, notes: String, treadmillMeters: Double?) {
+    private func save(_ item: RunSummary, notes: String, treadmillMeters: Double?, effort: Int, footPain: Int) {
         guard !summaryBusy, let record = savedRecord else { return }
         if item.isTreadmill {
             // The typed distance is the run's distance; only now does the plan session get marked.
@@ -1086,6 +1148,8 @@ struct RunView: View {
                 record.averageCadence = refined
             }
             record.notes = notes
+            record.effort = effort
+            record.footPain = footPain
             try? modelContext.save()
             RunDraftStore.clear()
             closeSummary()
@@ -1111,6 +1175,7 @@ struct RunView: View {
     private func closeSummary() {
         summary = nil
         savedRecord = nil
+        newBestMile = nil
         completedPlanIndex = nil
         summaryBusy = false
         tracker.reset()
@@ -1185,11 +1250,16 @@ struct RunView: View {
 struct RunSummaryView: View {
     let summary: RunSummary
     let isBusy: Bool
-    /// Called with the notes and, for a treadmill run, the typed distance in meters.
-    let onSave: (String, Double?) -> Void
+    /// This run's fastest mile when it is a new best, in seconds.
+    let newBestMile: Double?
+    /// Called with the notes, for a treadmill run the typed distance in meters, the effort (0 = not set) and
+    /// the foot pain (-1 = not set).
+    let onSave: (String, Double?, Int, Int) -> Void
     let onDiscard: () -> Void
 
     @State private var notes: String = ""
+    @State private var effort: Int = 0
+    @State private var footPain: Int = -1
     @State private var confirmDiscard: Bool = false
     /// The treadmill distance in miles as typed; prefilled with the pedometer's guess.
     @State private var milesText: String = ""
@@ -1205,6 +1275,8 @@ struct RunSummaryView: View {
                     numbers
                     treadmillBlock
                     splitsBlock
+                    SectionHeader("effort and foot")
+                    EffortFootRows(effort: $effort, footPain: $footPain)
                     SectionHeader("notes")
                     BoxedField(placeholder: "how did it feel?", text: $notes)
                         .padding(.top, Theme.s2)
@@ -1274,6 +1346,12 @@ struct RunSummaryView: View {
             if let cadence = summary.averageCadence, cadence > 0 {
                 ReadoutRow(key: "cadence", value: "\(Int(cadence.rounded())) spm")
             }
+            if let best = newBestMile {
+                Text("new best mile in a run: " + formatDuration(best))
+                    .font(Theme.mono(.micro))
+                    .foregroundStyle(Theme.fg)
+                    .padding(.top, Theme.s2)
+            }
         }
     }
 
@@ -1299,7 +1377,7 @@ struct RunSummaryView: View {
     private var actions: some View {
         VStack(spacing: Theme.s2) {
             BracketButton(title: "save run", style: .signal, isEnabled: canSave) {
-                onSave(notes, treadmillMeters)
+                onSave(notes, treadmillMeters, effort, footPain)
             }
             BracketButton(title: confirmDiscard ? "yes, discard" : "discard",
                           style: confirmDiscard ? .inverted : .plain,
