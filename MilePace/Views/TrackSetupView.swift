@@ -221,7 +221,7 @@ struct TrackSetupView: View {
         } label: {
             VStack(alignment: .leading, spacing: 0) {
                 ReadoutRow(key: preset.name,
-                           value: formatSplit(spec.targetRepSeconds),
+                           value: TrackLaps.timeWithUnit(spec.targetRepSeconds),
                            ruled: false,
                            leaders: false)
                 HStack(spacing: Theme.s2) {
@@ -246,9 +246,9 @@ struct TrackSetupView: View {
     }
 
     private func summaryLine(for spec: WorkoutSpec) -> String {
-        var text = "per rep"
+        var text = "per \(spec.repDistance) m"
         if spec.repDistance != 400 {
-            text += " \u{00B7} " + formatSplit(spec.targetPer400) + " per 400"
+            text += " \u{00B7} " + TrackLaps.timeWithUnit(spec.targetPer400) + " per 400 m"
         }
         if spec.totalReps > 1 {
             text += " \u{00B7} rest " + formatDuration(Double(spec.restSeconds))
@@ -345,6 +345,7 @@ struct WorkoutEditorView: View {
                     workoutSection
                     targetSection
                     restSection
+                    TrackAssistSetupSection()
                     BracketButton(title: "start workout",
                                   style: .signal,
                                   minHeight: 80,
@@ -396,6 +397,8 @@ struct WorkoutEditorView: View {
                        value: distanceIndex,
                        range: 0...(distanceOptions.count - 1),
                        format: { index in distanceText(index) })
+            TrackSetupNotes(distance: distance)
+                .padding(.bottom, Theme.s2)
             StepperRow(title: "sets", value: $sets, range: 1...8)
         }
     }
@@ -403,12 +406,13 @@ struct WorkoutEditorView: View {
     private var targetSection: some View {
         VStack(alignment: .leading, spacing: 0) {
             SectionHeader("target")
-            FieldRow(key: "per rep",
+            FieldRow(key: "time per rep",
                      placeholder: "m:ss.s",
                      text: $targetText,
                      note: currentSpec == nil ? "enter a time like 82.5 or 2:05" : nil)
             if let spec = currentSpec {
-                Text(formatSplit(spec.targetPer400) + " per 400 m")
+                Text(TrackLaps.targetText(seconds: spec.targetRepSeconds, meters: spec.repDistance)
+                     + " (" + TrackLaps.timeWithUnit(spec.targetPer400) + " per 400 m)")
                     .font(Theme.mono(.micro))
                     .foregroundStyle(Theme.dim)
                     .padding(.top, Theme.s2)

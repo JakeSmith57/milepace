@@ -10,7 +10,9 @@ struct SettingsView: View {
     @AppStorage(SettingsKey.announceMiles) private var announceMiles: Bool = true
     @AppStorage(SettingsKey.zoneGuard) private var zoneGuardCues: Bool = true
     @AppStorage(SettingsKey.trackCountdown) private var trackCountdown: Bool = true
-    @AppStorage(SettingsKey.lapFeedback) private var lapFeedback: Bool = false
+    @AppStorage(SettingsKey.lapFeedback) private var lapFeedback: Bool = true
+    @AppStorage(SettingsKey.trackAutoLap) private var trackAutoLap: Bool = true
+    @AppStorage(SettingsKey.trackAutoStart) private var trackAutoStart: Bool = true
     @AppStorage(SettingsKey.haptics) private var haptics: Bool = true
     @AppStorage(SettingsKey.cueInterval) private var cueInterval: CueInterval = .half
     @AppStorage(SettingsKey.voiceEnabled) private var voiceEnabled: Bool = true
@@ -86,7 +88,7 @@ struct SettingsView: View {
         VStack(spacing: 0) {
             StatusLine(left: "milepace",
                        center: "set",
-                       right: "v1.15",
+                       right: "v1.16",
                        accessory: StatusAccessory(title: "today", action: { PlanStore.shared.goHome() }))
             ScrollView {
                 VStack(alignment: .leading, spacing: 0) {
@@ -521,6 +523,8 @@ struct SettingsView: View {
             SectionHeader("track")
             CheckRow(title: "rest countdown", isOn: $trackCountdown)
             CheckRow(title: "lap feedback", isOn: $lapFeedback)
+            CheckRow(title: "gps auto-lap", isOn: $trackAutoLap)
+            CheckRow(title: "auto-start reps", isOn: $trackAutoStart)
         }
     }
 

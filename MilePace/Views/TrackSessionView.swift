@@ -14,7 +14,8 @@ struct TrackSessionView: View {
 
     @State private var workout: TrackWorkout
     @State private var now: Date = Date()
-    @State private var lastCountdownSecond: Int = -1
+    /// GPS auto-lap, the spoken cues around a rep and the countdown into rep 1.
+    @State private var assist: TrackAssist
     @State private var confirmEnd: Bool = false
     @State private var sessionStart: Date?
     @State private var paceOffer: PaceOffer?
@@ -43,6 +44,7 @@ struct TrackSessionView: View {
         _workout = State(initialValue: restored?.workout ?? TrackWorkout(spec: spec))
         _sessionStart = State(initialValue: restored?.sessionStart)
         _isTest = State(initialValue: restored?.isTest ?? PlanStore.shared.isTestWeek)
+        _assist = State(initialValue: TrackAssist(autoEnded: restored?.autoEnded ?? []))
         self.onClose = onClose
     }
 
@@ -61,10 +63,14 @@ struct TrackSessionView: View {
         .onAppear {
             UIApplication.shared.isIdleTimerDisabled = true
             PlanStore.shared.trackInProgress = true
+            if workout.state != .finished {
+                assist.begin(resumed: workout.state != .ready)
+            }
         }
         .onDisappear {
             UIApplication.shared.isIdleTimerDisabled = false
             PlanStore.shared.trackInProgress = false
+            assist.end()
         }
         .onChange(of: scenePhase) { _, phase in
             handleScenePhase(phase)
@@ -132,18 +138,19 @@ struct TrackSessionView: View {
         case .ready:
             return Banner(title: "ready",
                           subtitle: startBlocked ? "could not save your last workout. tap start to try again." : "\(total) reps",
-                          trailing: formatSplit(spec.targetRepSeconds),
-                          trailingSub: "target per rep")
+                          trailing: TrackLaps.timeWithUnit(spec.targetRepSeconds),
+                          trailingSub: "target per \(spec.repDistance) m")
         case .running(let rep, let lap):
-            var title = "rep \(rep)/\(total)"
+            var subtitle: String
             if spec.lapsPerRep > 1 {
-                title += " \u{00B7} lap \(lap)"
+                subtitle = TrackLaps.lapTargetText(lap: lap, seconds: workout.currentLapTarget ?? spec.targetRepSeconds)
+            } else {
+                subtitle = TrackLaps.targetText(seconds: spec.targetRepSeconds, meters: spec.repDistance)
             }
-            var subtitle = "target " + formatSplit(workout.currentLapTarget ?? spec.targetRepSeconds)
             if spec.sets > 1 {
                 subtitle += " \u{00B7} set \(workout.setNumber(forRep: rep))/\(spec.sets)"
             }
-            return Banner(title: title,
+            return Banner(title: TrackLaps.repHeader(rep: rep, total: total, meters: spec.repDistance),
                           subtitle: subtitle,
                           trailing: formatSplit(workout.repElapsed(at: now)),
                           trailingSub: "this rep")
@@ -166,6 +173,7 @@ struct TrackSessionView: View {
                 VStack(alignment: .leading, spacing: Theme.s2) {
                     heroBlock
                     deltaBlock
+                    assistBlock
                     Tape(rows: repRows, live: isRunning, maxRows: 3)
                     undoRow
                 }
@@ -179,12 +187,14 @@ struct TrackSessionView: View {
     @ViewBuilder
     private var heroBlock: some View {
         if workout.state == .ready {
-            HeroReadout(label: "target per rep",
+            HeroReadout(label: "target time for \(workout.spec.repDistance) m",
                         value: formatSplit(workout.spec.targetRepSeconds),
+                        unit: TrackLaps.unit(forSeconds: workout.spec.targetRepSeconds),
                         size: .hero)
         } else if let last = workout.lastLap {
             HeroReadout(label: workout.spec.lapsPerRep > 1 ? "last lap" : "last rep",
                         value: formatSplit(last.split),
+                        unit: TrackLaps.unit(forSeconds: last.split),
                         size: .hero)
         } else {
             HeroReadout(label: workout.spec.lapsPerRep > 1 ? "last lap" : "last rep",
@@ -201,6 +211,19 @@ struct TrackSessionView: View {
             } else {
                 Color.clear.frame(height: 60)
             }
+        }
+    }
+
+    /// Under the delta: how the rep starts and ends while ready, the GPS distance during a rep.
+    @ViewBuilder
+    private var assistBlock: some View {
+        switch workout.state {
+        case .ready:
+            TrackReadyPanel(assist: assist, now: now)
+        case .running:
+            TrackLiveGPSLine(assist: assist, repDistance: workout.spec.repDistance, now: now)
+        case .resting, .setRest, .finished:
+            EmptyView()
         }
     }
 
@@ -236,6 +259,7 @@ struct TrackSessionView: View {
                 .foregroundStyle(Theme.dim)
             BracketButton(title: "end workout", style: .inverted) {
                 workout.finishEarly()
+                assist.end()
                 confirmEnd = false
                 Coach.shared.stopSpeaking()
                 RestAlert.cancel()
@@ -256,9 +280,7 @@ struct TrackSessionView: View {
     private var lowerArea: some View {
         switch workout.state {
         case .ready:
-            signalBlock(word: "start") {
-                startWorkout()
-            }
+            readyArea
         case .running(_, let lap):
             signalBlock(word: isTooSoon ? "too soon" : lapWord(lap: lap)) {
                 tapLap()
@@ -267,6 +289,19 @@ struct TrackSessionView: View {
             restArea
         case .finished:
             EmptyView()
+        }
+    }
+
+    @ViewBuilder
+    private var readyArea: some View {
+        if assist.isCountingDown {
+            TrackCountdownArea(remaining: assist.countdownRemaining(now: now),
+                               onStartNow: { startNowTapped() },
+                               onCancel: { assist.cancelCountdown() })
+        } else {
+            signalBlock(word: "start") {
+                startTapped()
+            }
         }
     }
 
@@ -324,39 +359,101 @@ struct TrackSessionView: View {
 
     // MARK: Actions
 
-    private func startWorkout() {
+    /// The big [ start ] button: with auto-start a spoken 10 second countdown first, otherwise at once.
+    private func startTapped() {
+        if AppSettings.trackAutoStart {
+            assist.beginCountdown(now: Date(), spec: workout.spec)
+        } else {
+            startWorkout()
+        }
+    }
+
+    /// [ start now ] during the countdown.
+    private func startNowTapped() {
+        if startWorkout() {
+            Coach.shared.announceAutoGo()
+        }
+    }
+
+    /// Begins rep 1. Returns false when the earlier unsaved workout could not be saved first.
+    @discardableResult
+    private func startWorkout() -> Bool {
+        assist.cancelCountdown()
         guard saveFinishedDraftBeforeStarting() else {
             startBlocked = true
-            return
+            return false
         }
         startBlocked = false
         isTest = PlanStore.shared.isTestWeek
         workout.start(now: Date())
         sessionStart = Date()
+        assist.workoutStarted()
+        assist.speakIntro(rep: 1, spec: workout.spec)
         Coach.shared.lapHaptic()
         persist()
+        return true
     }
 
-    private func tapLap() {
-        let outcome = workout.lapTap(now: Date())
+    /// A tap of the big button, or (with `auto`) the moment GPS says the lap ended.
+    private func tapLap(at date: Date = Date(), auto: Bool = false) {
+        let endedLap = workout.currentLap
+        let outcome = workout.lapTap(now: date)
         switch outcome {
         case .ignored:
             break
         case .tooSoon:
-            Coach.shared.tooSoonHaptic()
-            tooSoonUntil = Date().addingTimeInterval(1)
+            if !auto {
+                Coach.shared.tooSoonHaptic()
+                tooSoonUntil = Date().addingTimeInterval(1)
+            }
         case .startedRep:
+            assist.repStarted()
+            if let rep = workout.currentRep {
+                assist.speakIntro(rep: rep, spec: workout.spec)
+            }
             Coach.shared.lapHaptic()
             persist()
-        case .lapDone(_, let delta, _, _):
+        case .lapDone(_, let delta, let repFinished, let workoutFinished):
             Coach.shared.lapHaptic()
-            Coach.shared.announceLap(delta: delta)
+            if repFinished {
+                repFinishedFeedback(auto: auto, workoutFinished: workoutFinished)
+            } else {
+                Coach.shared.announceLap(delta: delta)
+                if !auto, let lap = endedLap {
+                    assist.lapTapped(spec: workout.spec, lapJustEnded: lap)
+                }
+            }
             persist()
+        }
+    }
+
+    /// Marks a GPS-ended rep and says its time, how it compared and the rest.
+    private func repFinishedFeedback(auto: Bool, workoutFinished: Bool) {
+        let rep = workout.completedReps
+        if auto {
+            assist.noteAutoEnded(rep: rep)
+        }
+        guard let time = workout.repTimes.last else { return }
+        if workoutFinished {
+            assist.end()
+            Coach.shared.announceTrackFeedback(TrackSpeech.lastRepDone(average: workout.averageRepTime ?? time),
+                                               reason: "last rep")
+        } else {
+            let delta = workout.repDelta(rep: rep) ?? 0
+            Coach.shared.announceTrackFeedback(TrackSpeech.repDone(time: time,
+                                                                   delta: delta,
+                                                                   restSeconds: Int(workout.restTotal)),
+                                               reason: "rep \(rep) done")
         }
     }
 
     private func undoLastTap() {
         if workout.undoLastTap() {
+            if workout.state != .finished {
+                // Taking back the last tap of a finished workout brings the session back to life.
+                assist.begin(resumed: true)
+            }
+            assist.undone(completedReps: workout.completedReps)
             persist()
         }
     }
@@ -366,16 +463,30 @@ struct TrackSessionView: View {
         if workout.tick(now: date) {
             RestAlert.cancel()
             Coach.shared.restEndHaptic()
-            Coach.shared.announceGo()
+            restEnded(at: date)
         }
-        if workout.isResting && !workout.isRestComplete {
-            let seconds = Int(workout.restRemaining(at: date).rounded(.up))
-            if seconds == 10 && lastCountdownSecond != 10 {
-                Coach.shared.announceRestCountdown(seconds: 10)
+        if let event = assist.tick(workout: workout, now: date) {
+            handleAssist(event, at: date)
+        }
+    }
+
+    /// The rest ran out: the next rep starts by itself with auto-start, otherwise the runner taps go.
+    private func restEnded(at date: Date) {
+        let auto = AppSettings.trackAutoStart
+        assist.restEnded(workout: workout, autoStarted: auto)
+        if auto {
+            tapLap(at: date)
+        }
+    }
+
+    private func handleAssist(_ event: TrackAssistEvent, at date: Date) {
+        switch event {
+        case .startRep1:
+            if startWorkout() {
+                Coach.shared.announceAutoGo()
             }
-            lastCountdownSecond = seconds
-        } else {
-            lastCountdownSecond = -1
+        case .autoLap(let crossing):
+            tapLap(at: min(crossing, date), auto: true)
         }
     }
 
@@ -390,7 +501,11 @@ struct TrackSessionView: View {
               let began = sessionStart else {
             return
         }
-        TrackSessionStore.save(TrackSessionDraft(workout: workout, sessionStart: began, savedAt: Date(), isTest: isTest))
+        TrackSessionStore.save(TrackSessionDraft(workout: workout,
+                                                       sessionStart: began,
+                                                       savedAt: Date(),
+                                                       isTest: isTest,
+                                                       autoEnded: assist.autoEndedReps))
     }
 
     /// A finished workout left in the draft (never saved, never discarded) is saved as a workout record
@@ -445,7 +560,8 @@ struct TrackSessionView: View {
                     SectionHeader(workout.spec.name)
                     WorkoutResultsTable(spec: workout.spec,
                                         repTimes: workout.repTimes,
-                                        lapSplits: workout.lapSplits)
+                                        lapSplits: workout.lapSplits,
+                                        autoEnded: assist.autoEndedReps)
                         .padding(.top, Theme.s2)
                     resultsUndo
                     SectionHeader("effort and foot")

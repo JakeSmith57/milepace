@@ -232,9 +232,12 @@ final class Coach: NSObject, AVSpeechSynthesizerDelegate {
 
     // MARK: Track announcements
 
-    func announceRestCountdown(seconds: Int) {
+    /// "30 seconds." (rests of a minute or more), "10 seconds." and "3, 2, 1." during a rest. `restTotal` is the
+    /// length of the rest in seconds.
+    func announceRestCountdown(seconds: Int, restTotal: Double = 0) {
         guard AppSettings.trackCountdown else { return }
-        speak(seconds == 1 ? "1 second" : "\(seconds) seconds")
+        guard let text = TrackSpeech.restCountdown(seconds: seconds, restTotal: restTotal) else { return }
+        speak(text, reason: "rest \(seconds)")
     }
 
     func announceGo() {
@@ -242,17 +245,32 @@ final class Coach: NSObject, AVSpeechSynthesizerDelegate {
         speak("Go when ready")
     }
 
-    func announceLap(delta: Double) {
+    /// "Go." when a rep starts by itself (auto-start).
+    func announceAutoGo() {
+        guard AppSettings.trackCountdown else { return }
+        speak("Go.", reason: "auto go")
+    }
+
+    /// Before a rep: "Rep 2 of 4. 200 meters. Target 55 seconds." Follows the rest countdown setting.
+    func announceRepIntro(_ text: String) {
+        guard AppSettings.trackCountdown else { return }
+        speak(text, reason: "rep intro")
+    }
+
+    /// Mid-rep and end-of-rep feedback ("Halfway...", "100 to go.", "55.8. ..."). Follows the lap feedback setting.
+    func announceTrackFeedback(_ text: String, reason: String) {
         guard AppSettings.lapFeedback else { return }
-        switch SplitVerdict.verdict(delta: delta) {
-        case .onPace:
-            speak("On pace")
-        case .fast, .slow:
-            let whole = max(1, Int(abs(delta).rounded()))
-            let unit = whole == 1 ? "second" : "seconds"
-            let direction = delta < 0 ? "fast" : "slow"
-            speak("\(whole) \(unit) \(direction)")
-        }
+        speak(text, reason: reason)
+    }
+
+    /// Said once when GPS is too rough to end a rep by itself. Not tied to the lap feedback setting.
+    func announceGPSWeak() {
+        speak("GPS weak, tap at the line.", reason: "gps weak")
+    }
+
+    /// Feedback for a lap inside a longer rep, with the same wording as the end of a rep.
+    func announceLap(delta: Double) {
+        announceTrackFeedback(TrackSpeech.delta(delta), reason: "lap")
     }
 
     // MARK: Haptics

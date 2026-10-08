@@ -47,6 +47,10 @@ enum SettingsKey {
     static let homeLongitude = "homeLongitude"
     /// Say "Off route." when a run strays from the route it follows.
     static let offRouteCue = "offRouteCue"
+    /// End track laps and reps by GPS (outdoor track only).
+    static let trackAutoLap = "trackAutoLap"
+    /// Count down 10 s into rep 1 after [ start ] and start each rep by itself after the rest.
+    static let trackAutoStart = "trackAutoStart"
 }
 
 /// Light, dark or follow the system.
@@ -163,7 +167,7 @@ enum AppSettings {
             SettingsKey.announceMiles: true,
             SettingsKey.zoneGuard: true,
             SettingsKey.trackCountdown: true,
-            SettingsKey.lapFeedback: false,
+            SettingsKey.lapFeedback: true,
             SettingsKey.haptics: true,
             SettingsKey.runZone: RunZoneTarget.off.rawValue,
             SettingsKey.cueInterval: CueInterval.half.rawValue,
@@ -186,7 +190,9 @@ enum AppSettings {
             SettingsKey.voiceEnabled: true,
             SettingsKey.autoPause: true,
             SettingsKey.runSurface: RunSurface.outdoor.rawValue,
-            SettingsKey.offRouteCue: true
+            SettingsKey.offRouteCue: true,
+            SettingsKey.trackAutoLap: true,
+            SettingsKey.trackAutoStart: true
         ])
     }
 
@@ -216,7 +222,11 @@ enum AppSettings {
     static var announceMiles: Bool { bool(SettingsKey.announceMiles, fallback: true) }
     static var zoneGuardCues: Bool { bool(SettingsKey.zoneGuard, fallback: true) }
     static var trackCountdown: Bool { bool(SettingsKey.trackCountdown, fallback: true) }
-    static var lapFeedback: Bool { bool(SettingsKey.lapFeedback, fallback: false) }
+    static var lapFeedback: Bool { bool(SettingsKey.lapFeedback, fallback: true) }
+    /// GPS auto-lap on the track (a stored false wins; the default is on).
+    static var trackAutoLap: Bool { bool(SettingsKey.trackAutoLap, fallback: true) }
+    /// Auto-start reps on the track (a stored false wins; the default is on).
+    static var trackAutoStart: Bool { bool(SettingsKey.trackAutoStart, fallback: true) }
     static var haptics: Bool { bool(SettingsKey.haptics, fallback: true) }
     /// False mutes every spoken cue (previews in the voice picker still play).
     static var voiceEnabled: Bool { bool(SettingsKey.voiceEnabled, fallback: true) }

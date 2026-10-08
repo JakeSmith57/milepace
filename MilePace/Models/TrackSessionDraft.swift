@@ -13,12 +13,15 @@ struct TrackSessionDraft: Codable, Equatable {
     var savedAt: Date
     /// The session was made during the test week. Drafts saved before v1.7 read as false.
     var isTest: Bool = false
+    /// One-based rep numbers that GPS ended by itself. Drafts saved before v1.16 read as empty.
+    var autoEnded: [Int] = []
 
     enum CodingKeys: String, CodingKey {
         case workout
         case sessionStart
         case savedAt
         case isTest
+        case autoEnded
     }
 
     /// Still worth offering: written within the last three hours (and not from the future).
@@ -96,12 +99,13 @@ enum TrackSessionStore {
 }
 
 extension TrackSessionDraft {
-    /// Reads a draft, with `isTest` false when the saved JSON predates it.
+    /// Reads a draft, with `isTest` false and `autoEnded` empty when the saved JSON predates them.
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         workout = try container.decode(TrackWorkout.self, forKey: .workout)
         sessionStart = try container.decode(Date.self, forKey: .sessionStart)
         savedAt = try container.decode(Date.self, forKey: .savedAt)
         isTest = try container.decodeIfPresent(Bool.self, forKey: .isTest) ?? false
+        autoEnded = try container.decodeIfPresent([Int].self, forKey: .autoEnded) ?? []
     }
 }

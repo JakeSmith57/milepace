@@ -6,6 +6,8 @@ struct WorkoutResultsTable: View {
     let spec: WorkoutSpec
     let repTimes: [Double]
     let lapSplits: [[Double]]
+    /// One-based rep numbers that GPS ended; they carry a small "gps" tag.
+    var autoEnded: [Int] = []
 
     private func lapLine(forRep index: Int) -> String {
         guard index < lapSplits.count else { return "" }
@@ -15,7 +17,7 @@ struct WorkoutResultsTable: View {
     private func repRow(_ index: Int, _ time: Double) -> TapeRow {
         let delta = time - spec.targetRepSeconds
         return TapeRow(id: index + 1,
-                       key: "\(index + 1)",
+                       key: autoEnded.contains(index + 1) ? "\(index + 1) gps" : "\(index + 1)",
                        value: formatSplit(time),
                        note: ReadoutFormat.signedDelta(delta))
     }
@@ -36,6 +38,11 @@ struct WorkoutResultsTable: View {
 
     private var repList: some View {
         VStack(alignment: .leading, spacing: 0) {
+            TrackMicroLine("rep \u{00B7} time \u{00B7} target \u{00B7} \u{00B1}")
+                .padding(.top, Theme.s2)
+            TrackMicroLine(TrackLaps.targetText(seconds: spec.targetRepSeconds, meters: spec.repDistance)
+                           + ". \u{00B1} is seconds against the target.")
+                .padding(.bottom, Theme.s1)
             ForEach(Array(repTimes.enumerated()), id: \.offset) { item in
                 VStack(alignment: .leading, spacing: 0) {
                     Tape(rows: [repRow(item.offset, item.element)])
