@@ -532,6 +532,38 @@ final class TrainingPlanTests: XCTestCase {
         XCTAssertEqual((0..<5).map { pushed.dayOffset($0) }, [3, 4, 5, 8, 12])
     }
 
+    func testARecentSkipCanBeUndoneAndThenShowsAsMissed() throws {
+        let plan = try schedule()
+        // Session 0 (2 mi easy) is on day 1; the runner skipped it.
+        let skipped = try schedule(plan.skipping(0))
+        XCTAssertNil(skipped.firstMissed(today: 2))
+        XCTAssertEqual(skipped.recentSkipped(today: 2), 0)
+        XCTAssertEqual(skipped.recentSkipped(today: 3), 0)
+        // Past the two-day window the skip stays (reconciling would skip it again anyway).
+        XCTAssertNil(skipped.recentSkipped(today: 4))
+
+        let undone = try schedule(skipped.unskipping(0))
+        XCTAssertNil(undone.status(0))
+        XCTAssertEqual(undone.firstMissed(today: 2), 0)
+        // Then "do it today" works as for any miss.
+        let pushed = try schedule(undone.pushingBack(missed: 0, today: 2).progress)
+        XCTAssertGreaterThanOrEqual(pushed.dayOffset(0), 2)
+    }
+
+    func testUnskippingLeavesOtherStatusesAlone() throws {
+        let plan = try schedule()
+        let done = try schedule(plan.markingDone(0))
+        XCTAssertEqual(try schedule(done.unskipping(0)).status(0), .done)
+        XCTAssertNil(try schedule(plan.unskipping(0)).status(0))
+    }
+
+    func testTodaysSkipIsTheMostRecentOne() throws {
+        let plan = try schedule()
+        let both = try schedule(try schedule(plan.skipping(0)).skipping(1))
+        // Session 1 (day 3) was skipped today; it wins over day 1's skip.
+        XCTAssertEqual(both.recentSkipped(today: 3), 1)
+    }
+
     func testKeySessionsStayOnOfferForTwoDays() throws {
         let plan = try schedule()
         // Session 1 (track) is on day 3.

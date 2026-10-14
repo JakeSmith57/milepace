@@ -476,3 +476,8 @@ Deviations: (1) the auto flag is kept in the draft and the results screen only, 
 Most likely to need a compile fix: `TrackGPS` (`@Observable` + `NSObject` + nonisolated delegate methods, a private nested struct in an `@ObservationIgnored` array, `switch` over `CLAuthorizationStatus`), `TrackAssist.tick` (`guard gpsEnabled, case .running(_, let lap) = workout.state`), `TrackSessionView.tapLap` (the four-value `.lapDone` pattern), `TrackAssistViews` (`switch assist.calibrationStep` with bindings inside a `VStack` builder), `@Environment(LocationTracker.self)` in `TrackAssistSetupSection`.
 Known limits: GPS distance on a 400 m track is a few percent off without calibration; the lap crossing is interpolated between 1 Hz fixes. Resting with the screen locked relies on the background location mode that is on during a session. Skipping a rest does not auto-start.
 Field checks: 4 x 200 with auto-start (countdown, intro, auto end, "gps" tag), tap at the line mid-rep (wins, no double end), calibrate one lap, 800 m (lap cue at 400 m, no halfway), airplane-mode/denied location (tap mode, message), voice off, kill and resume mid-rep (tap mode until the next rep), undo after an auto end, treadmill surface.
+
+## v1.17: undo skip
+- `PlanSchedule.recentSkipped(today:)` (latest skipped session in the last `missedWindowDays` days or today) and `unskipping(_:)` (skipped → no status). `PlanStore.undoSkip(_:)`.
+- Today: when no missed card shows, a skipped card ("skipped tue", title, `[ undo skip ]`). Undoing a past session turns it into the missed card, whose `[ do it today ]` moves it. Older skips are not offered (reconcile would re-skip them).
+- Tests in TrainingPlanTests.

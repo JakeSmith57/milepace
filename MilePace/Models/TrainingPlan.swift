@@ -298,6 +298,22 @@ struct PlanSchedule {
         return progress.statuses[PlanProgress.key(index)]
     }
 
+    /// The most recent skipped session from the last `missedWindowDays` days or today, so a skip can be
+    /// undone. Older skips are left alone: reconciling would skip them again anyway.
+    func recentSkipped(today: Int) -> Int? {
+        let oldest = today - PlanSchedule.missedWindowDays
+        var found: Int? = nil
+        var foundDay = Int.min
+        for index in plan.sessions.indices where status(index) == SessionStatus.skipped {
+            let day = dayOffset(index)
+            if day <= today && day >= oldest && day >= foundDay {
+                found = index
+                foundDay = day
+            }
+        }
+        return found
+    }
+
     /// Oldest session from the last `missedWindowDays` days before `today` with no status.
     func firstMissed(today: Int) -> Int? {
         let oldest = today - PlanSchedule.missedWindowDays
@@ -615,6 +631,15 @@ struct PlanSchedule {
         } else {
             updated.autoDone.remove(PlanProgress.key(index))
         }
+        return updated
+    }
+
+    /// Undoes a skip: the session goes back to having no status, so it shows as missed (or as today's
+    /// session when it is today's). Anything but a skipped session is left as it is.
+    func unskipping(_ index: Int) -> PlanProgress {
+        guard plan.sessions.indices.contains(index), status(index) == SessionStatus.skipped else { return progress }
+        var updated = progress
+        updated.statuses.removeValue(forKey: PlanProgress.key(index))
         return updated
     }
 

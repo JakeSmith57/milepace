@@ -332,7 +332,31 @@ struct TodayView: View {
     private func missedSection(_ schedule: PlanSchedule) -> some View {
         if let index = schedule.firstMissed(today: today) {
             missedCard(schedule, index)
+        } else if let index = schedule.recentSkipped(today: today) {
+            skippedCard(schedule, index)
         }
+    }
+
+    /// A session skipped in the last couple of days, with a way to take the skip back. Undoing turns a
+    /// past session into the missed card (with its "do it today" button); today's session just comes back.
+    private func skippedCard(_ schedule: PlanSchedule, _ index: Int) -> some View {
+        let session = schedule.plan.sessions[index]
+        let day = schedule.dayOffset(index)
+        let label = day == today ? "today" : dayLabel(day)
+        return VStack(alignment: .leading, spacing: Theme.s2) {
+            micro("skipped " + label)
+            Text(session.title)
+                .font(Theme.mono(.body))
+                .fixedSize(horizontal: false, vertical: true)
+            BracketButton(title: "undo skip", style: .outlineOnInverted, minHeight: 48, fullWidth: false) {
+                store.undoSkip(index)
+            }
+            .padding(.top, Theme.s1)
+        }
+        .foregroundStyle(Theme.bg)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(Theme.s3)
+        .background(Theme.fg)
     }
 
     private func missedCard(_ schedule: PlanSchedule, _ index: Int) -> some View {

@@ -344,6 +344,12 @@ final class PlanStore {
         apply(schedule.markingDone(index))
     }
 
+    /// Undoes a skip. A past session then shows as missed, with "do it today".
+    func undoSkip(_ index: Int) {
+        guard let schedule = schedule else { return }
+        apply(schedule.unskipping(index))
+    }
+
     /// Takes a finished session back to unfinished, after the run that finished it was discarded.
     func reopen(_ index: Int) {
         guard let schedule = schedule else { return }
