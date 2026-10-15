@@ -31,6 +31,8 @@ struct TodayView: View {
     @State private var trackDraft: TrackSessionDraft? = nil
     /// A routine opened from the session card, shown as a sheet.
     @State private var routineSheet: Routine? = nil
+    /// Today's session waiting for a yes before "tomorrow" skips something else to make room.
+    @State private var postponeAsk: Int? = nil
 
     private let ticker = Timer.publish(every: 60, on: .main, in: .common).autoconnect()
 
@@ -67,6 +69,19 @@ struct TodayView: View {
         }
         .sheet(item: $routineSheet) { routine in
             RoutineDetailView(routine: routine)
+        }
+        .confirmationDialog(postponeQuestion,
+                            isPresented: postponeAskShown,
+                            titleVisibility: .visible) {
+            Button("move it") {
+                if let index = postponeAsk {
+                    store.postpone(index)
+                }
+                postponeAsk = nil
+            }
+            Button("cancel", role: .cancel) {
+                postponeAsk = nil
+            }
         }
         .onAppear {
             store.refresh()
@@ -462,6 +477,7 @@ struct TodayView: View {
                 TextBracketButton(title: "mark done", color: Theme.onSignal) {
                     store.markDone(index)
                 }
+                postponeButton(schedule, index)
                 TextBracketButton(title: "skip", color: Theme.onSignal) {
                     store.skip(index)
                 }
@@ -556,6 +572,59 @@ struct TodayView: View {
                 Spacer(minLength: 0)
             }
         }
+    }
+
+    // MARK: Postpone
+
+    /// "[ tomorrow ]", or "[ move to sat ]" when tomorrow is taken and the session would land later.
+    /// Hidden when there's no room left this week (then skip is the honest choice). Asks first when the
+    /// move would skip another session.
+    @ViewBuilder
+    private func postponeButton(_ schedule: PlanSchedule, _ index: Int) -> some View {
+        let result = schedule.postponing(index, today: today)
+        if let target = postponeTarget(schedule, index, result) {
+            let title = target == today + 1 ? "tomorrow" : "move to " + shortDay(target)
+            TextBracketButton(title: title, color: Theme.onSignal) {
+                if result.dropped.isEmpty {
+                    store.postpone(index)
+                } else {
+                    postponeAsk = index
+                }
+            }
+        }
+    }
+
+    private func postponeTarget(_ schedule: PlanSchedule, _ index: Int, _ result: PushBackResult) -> Int? {
+        guard !result.dropped.contains(index), result.progress != schedule.progress else { return nil }
+        let moved = PlanSchedule(plan: schedule.plan,
+                                 progress: result.progress,
+                                 startWeekday: schedule.startWeekday)
+        let day = moved.dayOffset(index)
+        return day > today ? day : nil
+    }
+
+    /// "sat" for a plan day.
+    private func shortDay(_ offset: Int) -> String {
+        let date = PlanCalendar.date(forOffset: offset, start: store.startDate)
+        return String(PlanFormat.weekdayName(date).prefix(3))
+    }
+
+    private var postponeAskShown: Binding<Bool> {
+        return Binding(get: { postponeAsk != nil },
+                       set: { shown in
+                           if !shown {
+                               postponeAsk = nil
+                           }
+                       })
+    }
+
+    /// "moving it makes room by skipping the 2 mi long on sun."
+    private var postponeQuestion: String {
+        guard let index = postponeAsk, let schedule = store.schedule else { return "move this session?" }
+        let result = schedule.postponing(index, today: today)
+        let items = result.dropped.map { droppedItem(schedule, $0) }
+        guard !items.isEmpty else { return "move this session?" }
+        return "no room for everything this week. moving it skips " + items.joined(separator: " and ") + "."
     }
 
     private func startTitle(_ session: PlanSession) -> String {

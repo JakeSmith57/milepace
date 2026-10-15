@@ -534,6 +534,16 @@ struct PlanSchedule {
         return placed
     }
 
+    /// "Tomorrow" for today's unfinished session: the same re-placing as a missed session done a day
+    /// later, so it takes tomorrow (or the first allowed day after it in tomorrow's week) and the rest of
+    /// that week moves around it. Unchanged when the session isn't today's or has a status.
+    func postponing(_ index: Int, today: Int) -> PushBackResult {
+        guard plan.sessions.indices.contains(index), dayOffset(index) == today else {
+            return PushBackResult(progress: progress, moved: [], dropped: [])
+        }
+        return pushingBack(missed: index, today: today + 1)
+    }
+
     /// "Do it today" for the missed session `missed`, contained in the calendar Monday-to-Sunday week
     /// that holds `today`. The missed session takes today, or the first open day after it this week. The
     /// unfinished sessions scheduled from today through that Sunday are placed again in plan order, each

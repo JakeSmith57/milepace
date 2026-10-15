@@ -532,6 +532,25 @@ final class TrainingPlanTests: XCTestCase {
         XCTAssertEqual((0..<5).map { pushed.dayOffset($0) }, [3, 4, 5, 8, 12])
     }
 
+    func testPostponingTodaysSessionIsAPushBackFromTomorrow() throws {
+        let plan = try schedule()
+        // Session 0 (easy) is today, day 1. Postponing it is "do it today" seen from day 2.
+        let postponed = plan.postponing(0, today: 1)
+        XCTAssertEqual(postponed, plan.pushingBack(missed: 0, today: 2))
+        let moved = try schedule(postponed.progress)
+        XCTAssertGreaterThan(moved.dayOffset(0), 1)
+        XCTAssertNil(moved.status(0))
+    }
+
+    func testOnlyTodaysUnfinishedSessionCanBePostponed() throws {
+        let plan = try schedule()
+        // Session 1 is on day 3, not today.
+        XCTAssertEqual(plan.postponing(1, today: 1).progress, plan.progress)
+        // A finished session stays put.
+        let done = try schedule(plan.markingDone(0))
+        XCTAssertEqual(done.postponing(0, today: 1).progress, done.progress)
+    }
+
     func testARecentSkipCanBeUndoneAndThenShowsAsMissed() throws {
         let plan = try schedule()
         // Session 0 (2 mi easy) is on day 1; the runner skipped it.

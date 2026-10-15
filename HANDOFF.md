@@ -481,3 +481,7 @@ Field checks: 4 x 200 with auto-start (countdown, intro, auto end, "gps" tag), t
 - `PlanSchedule.recentSkipped(today:)` (latest skipped session in the last `missedWindowDays` days or today) and `unskipping(_:)` (skipped → no status). `PlanStore.undoSkip(_:)`.
 - Today: when no missed card shows, a skipped card ("skipped tue", title, `[ undo skip ]`). Undoing a past session turns it into the missed card, whose `[ do it today ]` moves it. Older skips are not offered (reconcile would re-skip them).
 - Tests in TrainingPlanTests.
+
+## v1.18: postpone
+- `PlanSchedule.postponing(_:today:)` = `pushingBack(missed:today: today + 1)` for today's unfinished session; `PlanStore.postpone(_:)` (clears `activeSessionIndex` if it was that session).
+- Today session card: `[ tomorrow ]` (or `[ move to sat ]` when tomorrow is taken) between mark done and skip; hidden when there is no room this week; a confirmation dialog when the move would skip another session.

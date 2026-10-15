@@ -339,6 +339,15 @@ final class PlanStore {
         apply(schedule.skipping(index))
     }
 
+    /// Moves today's session to tomorrow (or the next allowed day); see `PlanSchedule.postponing`.
+    func postpone(_ index: Int) {
+        guard let schedule = schedule else { return }
+        if activeSessionIndex == index {
+            activeSessionIndex = nil
+        }
+        apply(schedule.postponing(index, today: todayOffset).progress)
+    }
+
     func markDone(_ index: Int) {
         guard let schedule = schedule else { return }
         apply(schedule.markingDone(index))
